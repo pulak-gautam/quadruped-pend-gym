@@ -1,0 +1,313 @@
+__credits__ = ["Pulak-Gautam"]
+
+from typing import Dict, Union
+
+import math
+import numpy as np
+import quaternion
+import mujoco as mj
+import yaml
+
+from gymnasium import utils
+from gymnasium.envs.mujoco import MujocoEnv
+from gymnasium import spaces
+from gymnasium.spaces import Box
+
+from scipy.spatial.transform import Rotation
+from quadruped_pend_gym.envs.utils import XmlGenerator
+
+class QuadrupedPendEnv(MujocoEnv, utils.EzPickle):
+    """
+    ## Action Space
+    The agent take a 12-element vector for actions.
+
+    The action space is a continuous where `action` represents:
+
+    | Num | Action                                   | Control Min | Control Max | Name (in corresponding XML file)  |      Joint     |Type (Unit)|
+    |-----|------------------------------------------|-------------|-------------|-----------------------------------|----------------|-----------|
+    | 0   | joint angle of FR_hip                    | -23.7       | 23.7        | FR_hip                            | FR_hip_joint   |  radians  |
+    | 1   | joint angle of FR_thigh                  | -23.7       | 23.7        | FR_thigh                          | FR_thigh_joint |  radians  |
+    | 2   | joint angle of FR_calf                   | -45.43      | 45.43       | FR_calf                           | FR_calf_joint  |  radians  |
+    | 3   | joint angle of FL_hip                    | -23.7       | 23.7        | FL_hip                            | FL_hip_joint   |  radians  |
+    | 4   | joint angle of FL_thigh                  | -23.7       | 23.7        | FL_thigh                          | FL_thigh_joint |  radians  |
+    | 5   | joint angle of FL_calf                   | -45.43      | 45.43       | FL_calf                           | FL_calf_joint  |  radians  |
+    | 6   | joint angle of RR_hip                    | -23.7       | 23.7        | RR_hip                            | RR_hip_joint   |  radians  |
+    | 7   | joint angle of RR_thigh                  | -23.7       | 23.7        | RR_thigh                          | RR_thigh_joint |  radians  |
+    | 8   | joint angle of RR_calf                   | -45.43      | 45.43       | RR_calf                           | RR_calf_joint  |  radians  |
+    | 9   | joint angle of RL_hip                    | -23.7       | 23.7        | RL_hip                            | RL_hip_joint   |  radians  |
+    | 10  | joint angle of RL_thigh                  | -23.7       | 23.7        | RL_thigh                          | RL_thigh_joint |  radians  |
+    | 11  | joint angle of RL_calf                   | -45.43      | 45.43       | RL_calf                           | RL_calf_joint  |  radians  |
+
+
+    ## Observation Space
+    The observation space is a `Box(-Inf, Inf, (68,), float64)` where the elements are as follows:
+        qpos of all joints, and previous two joint angles (last and second-last action)
+
+    ## Rewards
+    The goal is to keep the inverted pendulum stand upright (within a certain angle limit) for as long as possible 
+    a reward of +10 is given for each timestep that the pole is $ |axis-angle| < 0.2 $
+    a reward of +2 is given for each timestep that the pole is $ 0.2 < |axis-angle| < 0.4 $
+    a reward of +0.5 is given for each timestep that the pole is $ 0.4 < |axis-angle| < 0.5 $
+    a reward of +0.1 is given for each timestep that the pole is $ 0.5 < |axis-angle| < 0.6 $
+    a reward of -1 in all other cases and terminate 
+    
+    and `info` also contains the reward.
+
+    ## Starting State is perturbation around:
+    Joint 'FR_hip_joint' qpos is [0.] and qvel is [0.]
+    Joint 'FR_thigh_joint' qpos is [0.] and qvel is [0.]
+    Joint 'FR_calf_joint' qpos is [0.] and qvel is [0.]
+    Joint 'FL_hip_joint' qpos is [0.] and qvel is [0.]
+    Joint 'FL_thigh_joint' qpos is [0.] and qvel is [0.]
+    Joint 'FL_calf_joint' qpos is [0.] and qvel is [0.]
+    Joint 'RR_hip_joint' qpos is [0.] and qvel is [0.]
+    Joint 'RR_thigh_joint' qpos is [0.] and qvel is [0.]
+    Joint 'RR_calf_joint' qpos is [0.] and qvel is [0.]
+    Joint 'RL_hip_joint' qpos is [0.] and qvel is [0.]
+    Joint 'RL_thigh_joint' qpos is [0.] and qvel is [0.]
+    Joint 'RL_calf_joint' qpos is [0.] and qvel is [0.]
+    Joint 'pole_joint' qpos is [1. 0. 0. 0.] and qvel is [0. 0. 0.]
+
+    The initial position state is $\\mathcal{U}_{[-reset\\_noise\\_scale \times I_{2}, reset\\_noise\\_scale \times I_{2}]}$.
+    The initial velocity state is $\\mathcal{U}_{[-reset\\_noise\\_scale \times I_{2}, reset\\_noise\\_scale \times I_{2}]}$.
+
+    where $\\mathcal{U}$ is the multivariate uniform continuous distribution.
+
+
+    ## Episode End
+    ### Termination
+    The environment terminates when:
+    I.  Inverted Pendulum is unhealthy.
+        The Inverted Pendulum is unhealthy if any of the following happens:
+            1. Any of the state space values is no longer finite.
+            2. The absolute value of the axis angle between the pole and the quadruped is greater than TIPPING_ANGLE radians wrt global frame
+    II. Base of quadruped is tilted more than TIPPING_BASE_ANGLE
+
+    ### Truncation
+    The default duration of an episode is 1000 timesteps.
+
+    ## Arguments
+    Quadruped-Pend-v0 provides a range of parameters to modify the observation space, reward function, initial state, and termination condition.
+    These parameters can be applied during `gymnasium.make` in the following way:
+
+    ```python
+    import gymnasium as gym
+    env = gym.make('Quadruped-Pend-v0', reset_noise_scale=0.1)
+    ```
+
+    | Parameter               | Type       | Default                 | Description                                                                                   |
+    |-------------------------|------------|-------------------------|-----------------------------------------------------------------------------------------------|
+    | `xml_file`              | **str**    |`"go2/scene.xml"`        | Path to a MuJoCo model                                                                        |
+    | `reset_noise_scale`     | **float**  | `0.01`                  | Scale of random perturbations of initial position and velocity (see `Starting State` section) |
+    """
+
+    metadata = {
+        "render_modes": [
+            "human",
+            "rgb_array",
+            "depth_array",
+        ],
+    }
+
+    def __init__(
+        self,
+        xml_file: str = "./quadruped_pend_gym/models/go2/scene.xml", #TODO: add robot model choice in config (eg. config['robot'] = go2)
+        frame_skip: int = 2, 
+        default_camera_config: Dict[str, Union[float, int]] = None,
+        reset_noise_scale: float = None,
+        config_file: str = None,
+        **kwargs,
+    ):
+        try:
+            with open(config_path, 'r') as file:
+                self.config = yaml.safe_load(file)
+        except:
+            print("WARNING: yaml file not found, using default config")
+            with open("./quadruped_pend_gym/config/env_config.yaml", 'r') as file:
+                self.config = yaml.safe_load(file)
+
+        if self.config['set_pend_params']:
+            print(f"INFO: setting pendulum params: density={self.config['rho']}, height={self.config['h']}, radius={self.config['r']}")
+            XmlGenerator(rho=self.config['rho'], h=self.config['h'], r=self.config['r']).run()
+        else:
+            print(f"Using default pendulum params: density={2710.0}, height={1.0}, radius={0.01}")
+            XmlGenerator().run()
+        
+        if reset_noise_scale is None:
+            frame_skip = self.config['frame_skip']
+
+        print(frame_skip)
+
+        camera_config = self.config['camera_config']
+        self._reset_noise_scale = self.config['reset_noise_scale']
+
+        if self.config['store_history']:
+            observation_space = Box(low=-np.inf, high=np.inf, shape=(68,), dtype=np.float64)
+        else:
+            observation_space = Box(low=-np.inf, high=np.inf, shape=(44,), dtype=np.float64)
+
+
+        utils.EzPickle.__init__(self, xml_file, frame_skip, reset_noise_scale, **kwargs)
+        MujocoEnv.__init__(
+            self,
+            xml_file,
+            frame_skip,
+            observation_space=observation_space,
+            default_camera_config=camera_config,
+            **kwargs,
+        )
+
+        self.metadata = {
+            "render_modes": [
+                "human",
+                "rgb_array",
+                "depth_array",
+            ],
+            "render_fps": int(np.round(1.0 / self.dt)),
+        }
+
+        if self.config['store_history']:
+            self.observation_structure = {
+                "qpos": self.data.qpos.size,
+                "qvel": self.data.qvel.size,
+                "prev_action" : np.size(self.config['joint_names']) - 1,
+                "prev_prev_action" : np.size(self.config['joint_names']) - 1
+            }
+        else:
+            self.observation_structure = {
+                "qpos": self.data.qpos.size,
+                "qvel": self.data.qvel.size,
+            }
+
+        self.joint_pos = np.zeros(np.size(self.config['stand_up_joint_pos']))
+
+        self.prev_actions = [
+            np.zeros(np.size(self.config['stand_up_joint_pos'])),
+            np.zeros(np.size(self.config['stand_up_joint_pos'])),
+        ]
+
+        self.init_base_angle = None
+
+        self.reward_dict = {
+            "reward" : 0.0,
+            "theta"  : 0.0,
+            "base_theta" : 0.0,
+            "contact_F" : 0.0,
+            "infinite"  : 0.0
+        }
+    
+    def step(self, action):
+
+        if self.config['verbose']:
+            print(f"number of geoms in model is:{self.model.ngeom}")
+            for i in range(self.model.ngeom):
+                print(f"geometry at index {i} is of type:{self.model.geom(i).type[0]} and size:{self.model.geom(i).size}")
+                print(f"position and orientation of body frame attached to geom at index {i} ({self.model.geom(i).name}) is ({(self.data.geom(i).xmat.reshape((3,3)))},{self.data.geom(i).xpos})")
+                print(f"sensor data:{self.data.sensordata}")
+            print("\n")
+        
+        self.joint_pos = action
+
+        for _ in range(self.frame_skip):
+            mj.mj_step(self.model, self.data)
+
+        self.prev_actions[1] = self.prev_actions[0] 
+        self.prev_actions[0] = action
+
+        observation = self._get_obs()
+
+        q_init = np.quaternion(1.0, 0.0, 0.0, 0.0)
+        q_final = np.quaternion(self.data.sensordata[0], self.data.sensordata[1], self.data.sensordata[2], self.data.sensordata[3])
+        qd = np.conjugate(q_init) * q_final
+        theta = 2 * np.arctan2(np.sqrt(qd.x*qd.x + qd.y*qd.y + qd.z*qd.z), qd.w)
+        # print((theta / math.pi) * 180)
+
+        q_init_base = self.init_base_angle
+        q_final_base = np.quaternion(self.data.sensordata[4], self.data.sensordata[5], self.data.sensordata[6], self.data.sensordata[7])
+        qd_base = np.conjugate(q_init_base) * q_final_base
+        base_theta = 2 * np.arctan2(np.sqrt(qd_base.x*qd_base.x + qd_base.y*qd_base.y + qd_base.z*qd_base.z), qd_base.w)
+        # print((base_theta / math.pi) * 180)
+
+        terminated = self.get_terminated(observation, theta, base_theta)
+
+        if terminated:
+            reward = -1
+        else:
+            reward = self.get_reward(theta)
+
+        info = {"reward_survive": reward,
+                "reward_dict" : self.reward_dict}
+
+        if self.render_mode == "human":
+            self.render()
+        # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
+        return observation, reward, terminated, False, info
+
+    def reset_model(self):
+
+        mj.set_mjcb_control(self.controller)
+
+        noise_low = -self._reset_noise_scale
+        noise_high = self._reset_noise_scale
+
+        qpos = self.init_qpos + self.np_random.uniform(
+            size=self.model.nq, low=noise_low, high=noise_high
+        )
+        qvel = self.init_qvel + self.np_random.uniform(
+            size=self.model.nv, low=noise_low, high=noise_high
+        )
+        self.set_state(qpos, qvel)
+        self.init_base_angle = np.quaternion(self.data.sensordata[4], self.data.sensordata[5], self.data.sensordata[6], self.data.sensordata[7])
+
+        return self._get_obs()
+
+    def _get_obs(self):
+        if self.config['store_history']:
+            return np.concatenate([self.data.qpos, self.data.qvel, self.prev_actions[0], self.prev_actions[1]]).ravel()
+        else:
+            return np.concatenate([self.data.qpos, self.data.qvel]).ravel()
+    
+    def controller(self, model, data):
+        #pd controller : takes error and desired velocity as input, outputs the instantaneous torque
+        kp = 50 #TODO: kp, kd params from config
+        kd = 2
+
+        for i, JOINT_NAME in enumerate(self.config['joint_names']):
+            if JOINT_NAME == "pole_joint":
+                pass
+            else:
+                dq = (self.config['sensitivity'] * self.joint_pos[i] + self.config['stand_up_joint_pos'][i]) - self.data.joint(JOINT_NAME).qpos[0]
+                dv = -self.data.joint(JOINT_NAME).qvel[0]
+
+                tau = kp * dq + kd * dv
+                self.data.ctrl[i] = tau
+    
+    def _set_action_space(self):
+        self.action_space = spaces.Box(low=-2, high=2, shape=(12,), dtype=np.float32)
+        return self.action_space
+
+    def get_reward(self, theta):
+        max_contact_F = np.linalg.norm(self.data.sensordata[-4:], np.inf)
+        if(max_contact_F >= 300):
+            self.reward_dict["contact_F"] += -1
+            return -1
+        else:
+            if not self.config['sparse_reward']:
+                self.reward_dict["reward"] += np.exp(-(theta - 0.4))
+                return 1 - np.abs((theta - 0.0)) * np.exp(-1) #TODO: add regularization coeff from yaml
+            else:
+                self.reward_dict["reward"] += 1
+                return 1
+        
+    def get_terminated(self, observation, theta, base_theta):
+        if not np.isfinite(observation).all():
+            self.reward_dict["infinite"] += -1
+            return True
+        elif np.abs(theta) > self.config['tipping_angle']:
+            self.reward_dict["theta"] += -1
+            return True
+        elif np.abs(base_theta) > self.config['tipping_base_angle']:
+            self.reward_dict["base_theta"] += -1
+            return True
+
+        return False

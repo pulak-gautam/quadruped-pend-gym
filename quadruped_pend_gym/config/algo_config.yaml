@@ -1,0 +1,36 @@
+seed: 1 
+#seed of the experiment
+torch_deterministic: True 
+#if toggled, `torch.backends.cudnn.deterministic=False 
+cuda: True 
+#if toggled, cuda will be enabled by default
+capture_video: True 
+#whether to capture videos of the agent performances (check out `videos` folder)
+save_model: True 
+#whether to save model into the `runs/{run_name}` folder
+
+env_id: "Quadruped-Pend-v0" 
+#the id of the environment
+total_timesteps: 1500000 
+#total timesteps of the experiments
+learning_rate: 3.0E-4 
+#the learning rate of the optimizer
+buffer_size: 1.E+6 
+#the replay memory buffer size
+gamma: 0.99 
+#the discount factor gamma
+tau: 0.005 
+#target smoothing coefficient
+batch_size: 256 
+#the batch size of sample from the reply memory
+policy_noise: 0.2 
+#the scale of policy noise
+exploration_noise: 0.1 
+#the scale of exploration noise
+learning_starts: 25.E+3 
+#timestep to start learning
+policy_frequency: 2 
+#the frequency of training policy (delayed)
+noise_clip: 0.5 
+#noise clip parameter of the Target Policy Smoothing Regularization
+

@@ -1,0 +1,43 @@
+#gym env params---
+verbose: False
+reset_noise_scale: 0.01
+camera_config: 
+  trackbodyid: 1
+  distance: 2
+  elevation: -20
+frame_skip: 2
+sensitivity: 0.1 
+store_history: True 
+sparse_reward: False 
+tipping_angle: 0.9  
+tipping_base_angle: 0.6
+
+
+#quadruped params---
+joint_names: [
+          'FR_hip_joint'  ,
+          'FR_thigh_joint',                            
+          'FR_calf_joint' ,                          
+          'FL_hip_joint'  ,                          
+          'FL_thigh_joint',                          
+          'FL_calf_joint' ,                          
+          'RR_hip_joint'  ,
+          'RR_thigh_joint',
+          'RR_calf_joint' ,
+          'RL_hip_joint'  ,
+          'RL_thigh_joint',
+          'RL_calf_joint' ,
+          'pole_joint'    ,
+          ]
+stand_up_joint_pos: [
+          0.00571868, 0.608813, -1.21763, -0.00571868, 0.608813, -1.21763,
+          0.00571868, 0.608813, -1.21763, -0.00571868, 0.608813, -1.21763
+          ]
+
+
+#pendulum params---
+set_pend_params: True
+rho: 2710.0
+h: 0.6 
+r: 0.01
+
