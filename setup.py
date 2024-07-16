@@ -13,7 +13,7 @@ short_description = "A gymnasium RL environment for balancing inverted pendulum 
 # The compatible release operator (`~=`) is used to match any candidate version
 # that is expected to be compatible with the specified version.
 REQUIRED_PACKAGES = [
-    "gym == 1.0.0a2",
+    "gymnasium == 1.0.0",
     "numpy ~= 1.24.4",
     "numpy-quaternion ~= 2023.0.3",
     "stable-baselines == 2.4.0a3"
