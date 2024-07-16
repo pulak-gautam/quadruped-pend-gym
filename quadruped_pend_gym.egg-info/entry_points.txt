@@ -1,3 +1,0 @@
-[console_scripts]
-quadruped_pend_gym = quadruped_pend_gym.stand_up:main
-
