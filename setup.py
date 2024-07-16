@@ -16,7 +16,7 @@ REQUIRED_PACKAGES = [
     "gymnasium == 1.0.0",
     "numpy ~= 1.24.4",
     "numpy-quaternion ~= 2023.0.3",
-    "stable-baselines == 2.4.0a3"
+    "stable-baselines >= 2.4.0a5"
 ]
 
 # Packages which are only needed for testing code.
