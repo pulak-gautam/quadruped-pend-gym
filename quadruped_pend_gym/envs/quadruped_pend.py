@@ -14,7 +14,9 @@ from gymnasium import spaces
 from gymnasium.spaces import Box
 
 from scipy.spatial.transform import Rotation
+
 from quadruped_pend_gym.envs.utils import XmlGenerator
+from quadruped_pend_gym.envs.utils import display
 
 class QuadrupedPendEnv(MujocoEnv, utils.EzPickle):
     """
@@ -122,21 +124,19 @@ class QuadrupedPendEnv(MujocoEnv, utils.EzPickle):
             with open(config_path, 'r') as file:
                 self.config = yaml.safe_load(file)
         except:
-            print("WARNING: yaml file not found, using default config")
+            display("WARNING", "Yaml file not found, using default config")
             with open("./quadruped_pend_gym/config/env_config.yaml", 'r') as file:
                 self.config = yaml.safe_load(file)
 
         if self.config['set_pend_params']:
-            print(f"INFO: setting pendulum params: density={self.config['rho']}, height={self.config['h']}, radius={self.config['r']}")
+            display("INFO", f"Setting pendulum params: density={self.config['rho']}, height={self.config['h']}, radius={self.config['r']}")
             XmlGenerator(rho=self.config['rho'], h=self.config['h'], r=self.config['r']).run()
         else:
-            print(f"Using default pendulum params: density={2710.0}, height={1.0}, radius={0.01}")
+            display("INFO", f"Using default pendulum params: density={2710.0}, height={1.0}, radius={0.01}")
             XmlGenerator().run()
         
         if reset_noise_scale is None:
             frame_skip = self.config['frame_skip']
-
-        print(frame_skip)
 
         camera_config = self.config['camera_config']
         self._reset_noise_scale = self.config['reset_noise_scale']
@@ -199,12 +199,12 @@ class QuadrupedPendEnv(MujocoEnv, utils.EzPickle):
     def step(self, action):
 
         if self.config['verbose']:
-            print(f"number of geoms in model is:{self.model.ngeom}")
+            display("INFO", f"Number of geoms in model is:{self.model.ngeom}")
             for i in range(self.model.ngeom):
-                print(f"geometry at index {i} is of type:{self.model.geom(i).type[0]} and size:{self.model.geom(i).size}")
-                print(f"position and orientation of body frame attached to geom at index {i} ({self.model.geom(i).name}) is ({(self.data.geom(i).xmat.reshape((3,3)))},{self.data.geom(i).xpos})")
-                print(f"sensor data:{self.data.sensordata}")
-            print("\n")
+                display("INFO", f"geometry at index {i} is of type:{self.model.geom(i).type[0]} and size:{self.model.geom(i).size}")
+                display("INFO", f"position and orientation of body frame attached to geom at index {i} ({self.model.geom(i).name}) is ({(self.data.geom(i).xmat.reshape((3,3)))},{self.data.geom(i).xpos})")
+                display("INFO", f"sensor data:{self.data.sensordata}")
+            display("\n")
         
         self.joint_pos = action
 

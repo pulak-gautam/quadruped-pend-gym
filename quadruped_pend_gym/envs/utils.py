@@ -2,7 +2,10 @@ import xml.etree.ElementTree as ET
 import math
 import argparse
 import numpy as np
+
+from enum import Enum
 from scipy.spatial.transform import Rotation
+from colorama import Fore
 
 def mat2eulerScipy(mat):
     mat = mat.reshape((3,3))
@@ -18,6 +21,17 @@ def getAngle(P, Q):
     if cos_theta < -1.0:
         cos_theta = -1.0
     return np.arccos(cos_theta)
+
+class StatusCodes(Enum):
+    INFO = Fore.WHITE
+    ERROR = Fore.RED
+    WARNING = Fore.YELLOW
+
+def display(status : str, data : str):
+    try:
+        print(f"{StatusCodes[status].value}[{StatusCodes[status].name}] {Fore.WHITE} {data}")
+    except:
+        print(f"{StatusCodes['ERROR'].value}[{StatusCodes['ERROR'].name}] Invalid status code {status} passed in display()!")
 
 class XmlGenerator():
     """  XML generator given specifications of the pendulum
@@ -63,12 +77,12 @@ class XmlGenerator():
                 geom.set('size', f'{self.r}')
 
             comment = ET.Comment(f'Pendulum parameters height:{self.h}, radii:{self.r}, density:{self.rho}')
-            print(f'Pendulum parameters height:{self.h}, radii:{self.r}, density:{self.rho}')
+            display('INFO', f'Pendulum parameters height:{self.h}, radii:{self.r}, density:{self.rho}')
 
             pole_body.append(comment)
             tree.write(xml_path)
         else:
-            print("Error: Could not find body with name='pole' in XML.")
+            display("ERROR", "Could not find body with name='pole' in XML.")
 
 
 
