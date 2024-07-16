@@ -1,0 +1,34 @@
+Metadata-Version: 2.1
+Name: quadruped-pend-gym
+Version: 0.3.0
+Summary: A gymnasium RL environment for balancing inverted pendulum on quadruped Unitree Go2
+Home-page: https://github.com/pulak-gautam/quadruped-pend-gym
+Author: Pulak Gautam
+Author-email: pulakg21@iitk.ac.in
+License: UNKNOWN
+Keywords: Quadruped-PendGymnasium Reinforcement-Learning Reinforcement-Learning-Environment
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Operating System :: OS Independent
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Education
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering
+Classifier: Topic :: Scientific/Engineering :: Mathematics
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Software Development
+Classifier: Topic :: Software Development :: Libraries
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+
+## Inverted Pendulum balancing on Quadruped using off-policy RL
+This repository consists of a gymnasium environment which implements a reinforcement learning environment to facilitate training controllers for balancing inverted pendulum on a quadruped.
+
+Currently, only Unitree's **Go2** with **TD3 (Twin Delayed DDPG)** algorithm is supported out-of-the-box. The codebase follows modular structure and it is easy to add other models and algorithms.
+
+<p style="text-align: center;">
+    <img src="assets/sample.gif" alt="", width=400, height=400>
+</p>
+

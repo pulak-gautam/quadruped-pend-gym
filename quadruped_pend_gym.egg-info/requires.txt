@@ -1,0 +1,4 @@
+gymnasium==1.0.0
+numpy-quaternion~=2023.0.3
+numpy~=1.24.4
+stable-baselines>=2.4.0a5
