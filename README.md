@@ -9,3 +9,22 @@ You may use my [fork](https://github.com/pulak-gautam/stable-baselines3) in the 
 <p style="text-align: center;">
     <img src="assets/sample.gif" alt="", width=400, height=400>
 </p>
+
+## Getting Started
+### Installation
+```
+## install pre-requisites, it would be much easier to install it under seperate virtual environment to avoid clashing gymnasium versions
+# to create a new virtualenv: python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+git clone https://github.com/pulak-gautam/quadruped-pend-gym && cd quadruped-pend-gym
+pip install -e .
+```
+### Running 
+```
+# run example standup script
+python3 tests/test_quad_standup.py
+
+# run td3 based training script for balancing inverted pend
+python3 quadruped_pend_gym/quad_pend_rl/scripts/train.py
+```
+ 
