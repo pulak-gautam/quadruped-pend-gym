@@ -1,6 +1,7 @@
 absl-py==2.1.0
 ale-py==0.8.1
 cloudpickle==3.0.0
+colorama==0.4.6
 contourpy==1.2.1
 cycler==0.12.1
 etils==1.7.0
@@ -51,7 +52,6 @@ pyparsing==3.1.2
 python-dateutil==2.9.0.post0
 pytz==2024.1
 PyYAML==6.0.1
--e git+ssh://git@github.com/pulak-gautam/quadruped-pend-gym.git@60d3b79934de37683dabc7c6c31b01cb3f0aba5f#egg=quadruped_pend_gym
 scipy==1.14.0
 six==1.16.0
 stable-baselines==2.10.2

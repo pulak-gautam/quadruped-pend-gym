@@ -13,6 +13,7 @@ from gymnasium.envs.registration import register
 register(
     id="Quadruped-Pend-v0",
     entry_point="quadruped_pend_gym:QuadrupedPendEnv",
+    max_episode_steps=1000,
 )
 
 # Main names:
