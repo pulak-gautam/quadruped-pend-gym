@@ -6,7 +6,7 @@ import gymnasium as gym
 import torch
 import torch.nn as nn
 
-from quad_pend_rl.quad_pend_rl.modules import Actor, QNetwork, make_env
+from quadruped_pend_gym.quad_pend_rl.modules import Actor, QNetwork, make_env
 
 def evaluate(
     model_path: str,
