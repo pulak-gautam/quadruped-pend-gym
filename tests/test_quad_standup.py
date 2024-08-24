@@ -3,7 +3,7 @@ import gymnasium as gym
 import quadruped_pend_gym
 
 if __name__ == '__main__':
-    env = gym.make('Quadruped-Pend-v0', reset_noise_scale=0.01, render_mode='human')
+    env = gym.make('Quadruped-Pend-v1', reset_noise_scale=0.01, render_mode='human')
 
     observation, info = env.reset(seed=42)
     for _ in range(1000):

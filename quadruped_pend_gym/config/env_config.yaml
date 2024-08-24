@@ -42,3 +42,8 @@ rho: 2710.0
 h: 0.6 
 r: 0.01
 
+#reward params---
+
+
+#target policy params--
+enable_walking: True 

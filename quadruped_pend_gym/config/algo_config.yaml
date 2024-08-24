@@ -9,7 +9,7 @@ capture_video: True
 save_model: True 
 #whether to save model into the `runs/{run_name}` folder
 
-env_id: "Quadruped-Pend-v0" 
+env_id: "Quadruped-Pend-v1" 
 #the id of the environment
 total_timesteps: 1500000 
 #total timesteps of the experiments
