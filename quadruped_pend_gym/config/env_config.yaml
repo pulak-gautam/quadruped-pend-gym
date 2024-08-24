@@ -1,5 +1,5 @@
 #gym env params---
-verbose: False
+verbose: False 
 reset_noise_scale: 0.01
 camera_config: 
   trackbodyid: 1
@@ -9,6 +9,7 @@ frame_skip: 2
 sensitivity: 0.1 
 store_history: True 
 sparse_reward: False 
+use_heading: False
 tipping_angle: 0.9  
 tipping_base_angle: 0.6
 

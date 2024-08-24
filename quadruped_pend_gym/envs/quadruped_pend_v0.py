@@ -18,7 +18,7 @@ from scipy.spatial.transform import Rotation
 from quadruped_pend_gym.envs.utils import XmlGenerator
 from quadruped_pend_gym.envs.utils import display
 
-class QuadrupedPendEnv(MujocoEnv, utils.EzPickle):
+class QuadrupedPendEnv_v0(MujocoEnv, utils.EzPickle):
     """
     ## Action Space
     The agent take a 12-element vector for actions.

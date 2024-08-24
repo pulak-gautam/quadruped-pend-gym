@@ -252,12 +252,16 @@
     <jointactuatorfrc name="RL_calf_torque" joint="RL_calf_joint" noise="0.01" />
 
 
-    <framequat name="imu_quat" objtype="site" objname="imu" />
-    <gyro name="imu_gyro" site="imu" />
-    <accelerometer name="imu_acc" site="imu" />
     
     <framepos name="frame_pos" objtype="site" objname="imu" />
+    <framequat name="imu_quat" objtype="site" objname="imu" />
+
+    <accelerometer name="imu_acc" site="imu" />
+    <gyro name="imu_gyro" site="imu" />
+
     <framelinvel name="frame_vel" objtype="site" objname="imu" />
+    <frameangvel name="frame_ang_vel" objtype="site" objname="imu" />
+
     <force name="FR_contact" site="FR_foot" noise="0.01" />
     <force name="FL_contact" site="FL_foot" noise="0.01" />
     <force name="RR_contact" site="RR_foot" noise="0.01" />

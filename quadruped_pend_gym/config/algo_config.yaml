@@ -33,4 +33,6 @@ policy_frequency: 2
 #the frequency of training policy (delayed)
 noise_clip: 0.5 
 #noise clip parameter of the Target Policy Smoothing Regularization
+per: True
+#enable prioritized experienced replay
 

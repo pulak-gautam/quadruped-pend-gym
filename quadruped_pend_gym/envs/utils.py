@@ -7,6 +7,9 @@ from enum import Enum
 from scipy.spatial.transform import Rotation
 from colorama import Fore
 
+def phi_F(x):
+    return np.exp( - np.linalg.norm(x) / 0.25)
+
 def mat2eulerScipy(mat):
     mat = mat.reshape((3,3))
     r =  Rotation.from_matrix(mat)
