@@ -46,4 +46,4 @@ r: 0.01
 
 
 #target policy params--
-enable_walking: True 
+enable_walking: False 
