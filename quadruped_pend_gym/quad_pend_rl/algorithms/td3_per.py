@@ -13,7 +13,6 @@ import torch.optim as optim
 import yaml
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
-from PER import PER
 
 import stable_baselines3 as sb3
 if sb3.__version__ < "2.0":
@@ -23,14 +22,23 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 """
     )
 
-from quadruped_pend_gym.quad_pend_rl.modules import Actor, QNetwork, make_env
+from quadruped_pend_gym.quad_pend_rl.modules import Actor, QNetwork, make_env, PER
 
-def mse_with_is(self, expected, targets, is_weights):
+def mse_with_is(expected, targets, is_weights):
     """Custom loss function that takes into account the importance-sampling weights."""
     td_error = expected - targets
     weighted_squared_error = is_weights * td_error * td_error
     return torch.sum(weighted_squared_error) / torch.numel(weighted_squared_error)
-    
+
+@dataclass
+class experience:
+    observations: list 
+    actions: list
+    rewards: list
+    next_observations: list
+    dones: list
+
+
 class TD3():
     def __init__(self, config_path: str = "./quadruped_pend_gym/config/algo_config.yaml"):
         self.args = yaml.safe_load(open(config_path))
@@ -62,7 +70,7 @@ class TD3():
         self.envs.single_observation_space.dtype = np.float32
 
         if self.args['per']:
-            self.rb = PER(self.args['buffer_size'])
+            self.rb = PER(2**15)
         else:
             self.rb = ReplayBuffer(
                 int(self.args['buffer_size']), #pyyaml issue: https://github.com/yaml/pyyaml/pull/555
@@ -116,7 +124,16 @@ class TD3():
             # learning
             if global_step > int(self.args['learning_starts']):
                 if self.args['per']:
-                    idxs, data, is_weights = self.rb.sample(int(self.args['batch_size']))
+                    idxs, experiences, is_weights = self.rb.sample(int(self.args['batch_size']))
+            
+                    observations = torch.from_numpy(np.vstack([e[0] for e in experiences if e is not None])).float().to(self.device)
+                    actions = torch.from_numpy(np.vstack([e[1] for e in experiences if e is not None])).float().to(self.device)
+                    rewards = torch.from_numpy(np.vstack([e[2] for e in experiences if e is not None])).float().to(self.device)
+                    next_observations = torch.from_numpy(np.vstack([e[3] for e in experiences if e is not None])).float().to(self.device)
+                    dones = torch.from_numpy(np.vstack([e[4] for e in experiences if e is not None]).astype(np.uint8)).float().to(self.device)
+                    
+                    data = experience(observations, actions, rewards, next_observations, dones)
+                    
                     is_weights =  torch.from_numpy(is_weights).float().to(self.device)
                 else:
                     data = self.rb.sample(int(self.args['batch_size']))
