@@ -201,21 +201,31 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
 
         self.reward_dict = {
             "balance_reward" : 0.0,
+
             "linear_vel_tracking" : 0.0,
             "heading_tracking" : 0.0,
+            "pos_tracking" : 0.0,
+
             "joint_torques_penalty" : 0.0,
             "joint_vel_penalty"  : 0.0,
+            "joint_acc_penalty"  : 0.0,
             "contact_force_penalty" : 0.0,
             "pend_tipping_penalty"  : 0.0,
             "base_tipping_penalty" : 0.0,
             "infinite_obs"  : 0.0
         }
         
-        self.command_ranges = {
-            "lin_speed_x" : [-0.75, 0.75], # min max [m/s]
-            "lin_speed_y" : [-0.75, 0.75],   # min max [m/s]
-        }
-        
+        if self.config['command_vel']:
+            self.command_ranges = {
+                "lin_speed" : [-0.75, 0.75], # min max [m/s]
+                "heading" : [-np.pi, np.pi],   # min max [rads]
+            }
+            self.walking_speed = 0.5
+        else:
+            self.command_ranges = {
+                "pos_x" : [-3, 3], # min max [m]
+                "pos_y" : [-3, 3], # min max [m]
+            }
         self.commands = [0.0, 0.0]
     
     def step(self, action):
@@ -250,21 +260,17 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         base_theta = 2 * np.arctan2(np.sqrt(qd_base.x*qd_base.x + qd_base.y*qd_base.y + qd_base.z*qd_base.z), qd_base.w)
         # print((base_theta / math.pi) * 180)
 
+        curr_pos = self.data.sensor('frame_pos').data[:2].copy()   
         curr_vel = self.data.sensor('frame_vel').data[:2].copy()
-        # print(curr_vel)
+        curr_quat = self.data.sensor('imu_quat').data.copy()
 
-        curr_heading = 0.0
-        if   curr_vel[0] > 0 and curr_vel[1] > 0:
-            curr_heading = np.arctan(np.abs(curr_vel[1]/curr_vel[0]))
-        elif curr_vel[0] < 0 and curr_vel[1] > 0:
-            curr_heading = np.pi - np.arctan(np.abs(curr_vel[1]/curr_vel[0]))
-        elif curr_vel[0] < 0 and curr_vel[1] < 0:
-            curr_heading = -np.pi + np.arctan(np.abs(curr_vel[1]/curr_vel[0]))
-        elif curr_vel[0] > 0 and curr_vel[1] < 0:
-            curr_heading = -np.arctan(np.abs(curr_vel[1]/curr_vel[0]))
-        # print((curr_heading / math.pi) * 180)
+        q_imu = np.quaternion(curr_quat[0], curr_quat[1], curr_quat[2], curr_quat[3])
+        curr_yaw = np.arctan2(2.0*(q_imu.w*q_imu.z + q_imu.x*q_imu.y), 1.0 - 2.0*(q_imu.y*q_imu.y + q_imu.z*q_imu.z))
+        curr_roll = np.arctan2(2.0*(q_imu.w*q_imu.x + q_imu.y*q_imu.z), 1.0 - 2.0*(q_imu.x*q_imu.x + q_imu.y*q_imu.y))
+        curr_pitch = np.arcsin(2.0*(q_imu.w*q_imu.y - q_imu.z*q_imu.x))
 
         joint_vel = []
+        joint_acc = self.data.qacc 
         joint_torques = []
         for i, JOINT_NAME in enumerate(self.config['joint_names']):
             if JOINT_NAME == "pole_joint":
@@ -272,20 +278,25 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
             else:
                 joint_torques.append(self.data.sensor(JOINT_NAME[:-5] + "torque").data)
                 joint_vel.append(self.data.sensor(JOINT_NAME[:-5] + "vel").data)
-        # print(np.shape(joint_torques), np.shape(joint_vel))
-        
+
+        if self.config['verbose']:
+            display("INFO", f"joint_pos: {curr_pos}")
+            display("INFO", f"joint_vel: {curr_vel}")
+            display("INFO", f"rpy: {curr_roll, curr_pitch, curr_yaw}")
+                
         terminated = self.get_terminated(observation, theta, base_theta)
 
         if terminated:
             reward = -1
         else:
-            reward = self.get_reward(theta, curr_vel, curr_heading, joint_torques, joint_vel)
+            reward = self.get_reward(theta, curr_pos, curr_vel, curr_yaw, joint_torques, joint_vel, joint_acc)
 
         info = {"reward_survive": reward,
                 "reward_dict" : self.reward_dict}
 
         if self.render_mode == "human":
             self.render()
+
         # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
         return observation, reward, terminated, False, info
 
@@ -306,10 +317,14 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         self.init_base_angle = np.quaternion(self.data.sensordata[4], self.data.sensordata[5], self.data.sensordata[6], self.data.sensordata[7])
 
         if self.config['enable_walking']:
-            self.commands[0] = self.np_random.uniform(self.command_ranges["lin_speed_x"][0], self.command_ranges["lin_speed_x"][1])
-            self.commands[1] = self.np_random.uniform(self.command_ranges["lin_speed_y"][0], self.command_ranges["lin_speed_y"][1])
-
-            display("INFO", f"Command: speed = {self.commands[0], self.commands[1]}")
+            if self.config['command_vel']:
+                self.commands[0] = self.walking_speed
+                self.commands[1] = self.np_random.uniform(self.command_ranges["heading"][0], self.command_ranges["heading"][1])
+                display("INFO", f"Command: heading = {self.commands[1]}, speed = {self.commands[0]}")
+            else:
+                self.commands[0] = self.np_random.uniform(self.command_ranges["pos_x"][0], self.command_ranges["pos_x"][1])
+                self.commands[1] = self.np_random.uniform(self.command_ranges["pos_y"][0], self.command_ranges["pos_y"][1])
+                display("INFO", f"Command: x = {self.commands[0]}, y = {self.commands[1]}")
 
         return self._get_obs()
 
@@ -341,7 +356,7 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         self.action_space = spaces.Box(low=-2, high=2, shape=(12,), dtype=np.float32)
         return self.action_space
 
-    def get_reward(self, theta, curr_vel, curr_heading, curr_torq, curr_joint_vel):
+    def get_reward(self, theta, curr_pos, curr_vel, curr_heading, curr_torq, curr_joint_vel, curr_joint_acc):
     
         max_contact_F = np.linalg.norm(self.data.sensordata[-4:], np.inf)
         if(max_contact_F >= 300):
@@ -350,22 +365,25 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         else:
             if not self.config['sparse_reward']:
                 
-                self.reward_dict["balance_reward"] = 1 - np.abs((theta - 0.0)) * np.exp(-1)
+                self.reward_dict["balance_reward"] = self.config['r_theta_tracking'] - np.abs((theta - 0.0)) * np.exp(-1)
 
                 if self.config["enable_walking"]:
-                    self.reward_dict["linear_vel_tracking"] = 0.4 * phi_F((curr_vel) - self.commands[:2])
-                    self.reward_dict["heading_tracking"] = 0.0 #TODO: implement heading based reward? same as vel xy?
-                else:
-                    self.reward_dict["linear_vel_tracking"] = 0.0
-                    self.reward_dict["heading_tracking"] = 0.0
+                    if self.config['command_vel']:
+                        self.reward_dict["linear_vel_tracking"] = self.config['r_linear_vel_tracking'] * phi_F((curr_vel) - np.array([self.commands[0], self.commands[0]]))
+                        self.reward_dict["heading_tracking"] = self.config['r_heading_tracking'] * phi_F((curr_heading) - self.commands[1])
+                    else:
+                        self.reward_dict["pos_tracking"] = self.config['r_pos_tracking'] * phi_F((curr_pos) - self.commands)
 
-                self.reward_dict["joint_torques_penalty"] = -0.00001 * np.linalg.norm(curr_torq)
-                self.reward_dict["joint_vel_penalty"] = -0.00001 * np.linalg.norm(curr_joint_vel)
-                self.reward_dict["contact_force_penalty"] = -0.00001 * max_contact_F
+                self.reward_dict["joint_torques_penalty"] = self.config['r_joint_torques_penalty'] * np.linalg.norm(curr_torq)
+                self.reward_dict["joint_acc_penalty"] = self.config['r_joint_acc_penalty'] * np.linalg.norm(curr_joint_acc)
+                self.reward_dict["joint_vel_penalty"] = self.config['r_joint_vel_penalty'] * np.linalg.norm(curr_joint_vel)
+                self.reward_dict["contact_force_penalty"] = self.config['r_contact_force_penalty'] * max_contact_F
                 self.reward_dict["pend_tipping_penalty"] = 0.0
                 self.reward_dict["base_tipping_penalty"] = 0.0
                 self.reward_dict["infinite_obs"] = 0.0
-                #TODO: add reward hyperparms from yaml
+
+                if self.config['verbose']:
+                    display("INFO", f"reward_dict: {self.reward_dict}")
 
                 return sum(self.reward_dict.values())
             else:

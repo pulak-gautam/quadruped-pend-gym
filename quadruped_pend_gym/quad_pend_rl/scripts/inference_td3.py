@@ -53,19 +53,16 @@ if __name__ == "__main__":
     run_name = f"InvertedPendulumQuadruped__{int(time.time())}"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    parser = argparse.ArgumentParser(description='script to modify inverted pendulum inertial params given radii and height')
-    parser.add_argument('model_path', type=str, help='Path to model file of the model')
 
-    model_path = "./quadruped_pend_gym/quad_pend_rl/runs/InvertedPendulumQuadruped__td3_continuous_action__1__1720568202/td3_continuous_action.cleanrl_model"
+    model_path = "./runs/Quadruped-Pend-v1__td3_per__1__1724575336/td3_per.cleanrl_model"
 
     evaluate(
         model_path,
         make_env,
-        "InvertedPendulumQuadruped",
+        "Quadruped-Pend-v1",
         eval_episodes=10,
         run_name=f"{run_name}-eval",
         Model=(Actor, QNetwork),
         device="cpu",
-        capture_video=False,
+        capture_video=True,
     )

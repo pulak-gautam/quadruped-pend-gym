@@ -9,9 +9,9 @@ capture_video: False
 save_model: True 
 #whether to save model into the `runs/{run_name}` folder
 
-env_id: "Quadruped-Pend-v0" 
+env_id: "Quadruped-Pend-v1" 
 #the id of the environment
-total_timesteps: 1500000 
+total_timesteps: 1000000 
 #total timesteps of the experiments
 learning_rate: 3.0E-4 
 #the learning rate of the optimizer
@@ -27,12 +27,12 @@ policy_noise: 0.2
 #the scale of policy noise
 exploration_noise: 0.1 
 #the scale of exploration noise
-learning_starts: 33.E+3 # 25.E+3
+learning_starts: 25.E+3
 #timestep to start learning
 policy_frequency: 2 
 #the frequency of training policy (delayed)
 noise_clip: 0.5 
 #noise clip parameter of the Target Policy Smoothing Regularization
-per: True
+per: False
 #enable prioritized experienced replay
 
