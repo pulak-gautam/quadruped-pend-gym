@@ -9,6 +9,5 @@ if __name__ == '__main__':
     for _ in range(1000):
         action = np.zeros(np.shape(env.action_space.sample()))
         observation, reward, terminated, truncated, info = env.step(action)
-        
         env.render()
     env.close()
