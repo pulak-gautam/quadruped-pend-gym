@@ -215,6 +215,7 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         ]
 
         self.init_base_angle = None
+        self.init_yaw = None
 
         self.reward_dict = {
             "balance_reward" : 0.0,
@@ -235,7 +236,7 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         if self.config['command_vel']:
             self.command_ranges = {
                 "lin_speed" : [-0.75, 0.75], # min max [m/s]
-                "heading" : [-np.pi, np.pi],   # min max [rads]
+                "heading" : [-np.pi / 4, np.pi / 4],   # min max [rads]
             }
             self.walking_speed = 0.5
         else:
@@ -299,20 +300,20 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         if self.config['verbose']:
             display("INFO", f"joint_pos: {curr_pos}")
             display("INFO", f"joint_vel: {curr_vel}")
-            display("INFO", f"rpy: {curr_roll, curr_pitch, curr_yaw}")
+            display("INFO", f"rpy: {curr_roll, curr_pitch, curr_yaw - self.init_yaw}")
                 
         terminated = self.get_terminated(observation, theta, base_theta)
 
         if terminated:
             if self.config['enable_walking']:
                 if self.config['command_vel']:
-                    reward = -1 - np.linalg.norm(np.abs(curr_vel) - np.array([self.commands[0], self.commands[0]])) * np.exp(-1) - np.linalg.norm((curr_yaw) - self.commands[1]) * np.exp(-1) 
+                    reward = -1 - 0.5 * np.linalg.norm(np.abs(curr_vel) - 0.5 * np.array([self.commands[0], self.commands[0]])) * np.exp(-1) - np.linalg.norm((curr_yaw - self.init_yaw) - self.commands[1]) * np.exp(-1) 
                 else:
-                    reward = -1 - np.linalg.norm((curr_pos) - self.commands) * np.exp(-1)
+                    reward = -1 - 0.5 * np.linalg.norm((curr_pos) - self.commands) * np.exp(-1)
             else:
                 reward = -1
         else:
-            reward = self.get_reward(theta, curr_pos, curr_vel, curr_yaw, joint_torques, joint_vel, joint_acc)
+            reward = self.get_reward(theta, curr_pos, curr_vel, curr_yaw - self.init_yaw, joint_torques, joint_vel, joint_acc)
 
         info = {"reward_survive": reward,
                 "reward_dict" : self.reward_dict}
@@ -338,6 +339,10 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         )
         self.set_state(qpos, qvel)
         self.init_base_angle = np.quaternion(self.data.sensordata[4], self.data.sensordata[5], self.data.sensordata[6], self.data.sensordata[7])
+
+        curr_quat = self.data.sensor('imu_quat').data.copy()
+        q_imu = np.quaternion(curr_quat[0], curr_quat[1], curr_quat[2], curr_quat[3])
+        self.init_yaw = np.arctan2(2.0*(q_imu.w*q_imu.z + q_imu.x*q_imu.y), 1.0 - 2.0*(q_imu.y*q_imu.y + q_imu.z*q_imu.z))   
 
         if self.config['enable_walking']:
             if self.config['command_vel']:

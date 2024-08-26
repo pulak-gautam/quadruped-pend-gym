@@ -43,12 +43,12 @@ h: 0.6
 r: 0.01
 
 #reward params---
-#r_theta_tracking: 0.45
-#r_linear_vel_tracking: 0.40
-#r_heading_tracking: 0.10
+r_theta_tracking: 0.45
+r_linear_vel_tracking: 0.40
+r_heading_tracking: 0.10
 
-r_theta_tracking: 0.5
-r_pos_tracking: 0.5
+#r_theta_tracking: 0.5
+#r_pos_tracking: 0.5
 
 r_joint_torques_penalty: -0.001
 r_joint_vel_penalty: -0.001
@@ -57,4 +57,4 @@ r_contact_force_penalty: -0.0001
 
 #target policy params--
 enable_walking: True 
-command_vel: False
+command_vel: True
