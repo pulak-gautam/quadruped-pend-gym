@@ -10,7 +10,7 @@ sensitivity: 0.1
 store_history: True 
 sparse_reward: False 
 use_heading: False
-tipping_angle: 1.2 #0.9  
+tipping_angle: 0.9  
 tipping_base_angle: 0.6
 
 
@@ -43,18 +43,8 @@ h: 0.6
 r: 0.01
 
 #reward params---
-r_theta_tracking: 0.45
-r_linear_vel_tracking: 0.40
-r_heading_tracking: 0.10
-
-#r_theta_tracking: 0.5
-#r_pos_tracking: 0.5
-
+r_theta_tracking: 1
 r_joint_torques_penalty: -0.001
 r_joint_vel_penalty: -0.001
 r_joint_acc_penalty: -0.001
 r_contact_force_penalty: -0.0001
-
-#target policy params--
-enable_walking: True 
-command_vel: True

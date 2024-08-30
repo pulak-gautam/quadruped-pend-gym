@@ -134,22 +134,12 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
             display("INFO", f"Using default pendulum params: density={2710.0}, height={1.0}, radius={0.01}")
             XmlGenerator().run()
         
-        if reset_noise_scale is None:
-            frame_skip = self.config['frame_skip']
-
-        camera_config = self.config['camera_config']
         self._reset_noise_scale = self.config['reset_noise_scale']
 
-        if not self.config['enable_walking']:
-            if self.config['store_history']:
-                observation_space = Box(low=-np.inf, high=np.inf, shape=(68,), dtype=np.float64)
-            else:
-                observation_space = Box(low=-np.inf, high=np.inf, shape=(44,), dtype=np.float64)
-        else:
-            if self.config['command_vel']:
-                observation_space = Box(low=-np.inf, high=np.inf, shape=(73,), dtype=np.float64) #(vx, vy, yaw, vx*, vy*)
-            else:
-                observation_space = Box(low=-np.inf, high=np.inf, shape=(75,), dtype=np.float64) #(x, y, vx, vy, yaw, x*, y*)
+        frame_skip = self.config['frame_skip']
+        camera_config = self.config['camera_config']
+
+        observation_space = Box(low=-np.inf, high=np.inf, shape=(68,), dtype=np.float64)
 
         utils.EzPickle.__init__(self, xml_file, frame_skip, reset_noise_scale, **kwargs)
         MujocoEnv.__init__(
@@ -170,42 +160,12 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
             "render_fps": int(np.round(1.0 / self.dt)),
         }
 
-        if not self.config['enable_walking']:
-            if self.config['store_history']:
-                self.observation_structure = {
-                    "qpos": self.data.qpos.size,
-                    "qvel": self.data.qvel.size,
-                    "prev_action" : np.size(self.config['joint_names']) - 1,
-                    "prev_prev_action" : np.size(self.config['joint_names']) - 1
-                }
-            else:
-                self.observation_structure = {
-                    "qpos": self.data.qpos.size,
-                    "qvel": self.data.qvel.size,
-                }
-        else: 
-            if self.config['command_vel']:
-                self.observation_structure = {
-                    "qpos": self.data.qpos.size,
-                    "qvel": self.data.qvel.size,
-                    "vel": np.size([0.0, 0.0]),
-                    "yaw": np.size([0.0]),
-                    "commands" : np.size([0.0, 0.0]),
-                    "prev_action" : np.size(self.config['joint_names']) - 1,
-                    "prev_prev_action" : np.size(self.config['joint_names']) - 1,
-                    }
-            else:
-                self.observation_structure = {
-                    "qpos": self.data.qpos.size,
-                    "qvel": self.data.qvel.size,
-                    "pos": np.size([0.0, 0.0]),
-                    "vel": np.size([0.0, 0.0]),
-                    "yaw": np.size([0.0]),
-                    "commands" : np.size([0.0, 0.0]),
-                    "prev_action" : np.size(self.config['joint_names']) - 1,
-                    "prev_prev_action" : np.size(self.config['joint_names']) - 1,
-                    }
-
+        self.observation_structure = {
+            "qpos": self.data.qpos.size,
+            "qvel": self.data.qvel.size,
+            "prev_action" : np.size(self.config['joint_names']) - 1,
+            "prev_prev_action" : np.size(self.config['joint_names']) - 1
+        }
 
         self.joint_pos = np.zeros(np.size(self.config['stand_up_joint_pos']))
 
@@ -220,31 +180,16 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         self.reward_dict = {
             "balance_reward" : 0.0,
 
-            "linear_vel_tracking" : 0.0,
-            "heading_tracking" : 0.0,
-            "pos_tracking" : 0.0,
-
             "joint_torques_penalty" : 0.0,
             "joint_vel_penalty"  : 0.0,
             "joint_acc_penalty"  : 0.0,
-            "contact_force_penalty" : 0.0,
+
             "pend_tipping_penalty"  : 0.0,
             "base_tipping_penalty" : 0.0,
+
+            "contact_force_penalty" : 0.0,
             "infinite_obs"  : 0.0
         }
-        
-        if self.config['command_vel']:
-            self.command_ranges = {
-                "lin_speed" : [-0.75, 0.75], # min max [m/s]
-                "heading" : [-np.pi / 4, np.pi / 4],   # min max [rads]
-            }
-            self.walking_speed = 0.5
-        else:
-            self.command_ranges = {
-                "pos_x" : [-3, 3], # min max [m]
-                "pos_y" : [-3, 3], # min max [m]
-            }
-        self.commands = [0.0, 0.0]
     
     def step(self, action):
 
@@ -278,15 +223,17 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         base_theta = 2 * np.arctan2(np.sqrt(qd_base.x*qd_base.x + qd_base.y*qd_base.y + qd_base.z*qd_base.z), qd_base.w)
         # print((base_theta / math.pi) * 180)
 
-        curr_pos = self.data.sensor('frame_pos').data[:2].copy()   
-        curr_vel = self.data.sensor('frame_vel').data[:2].copy()
-        curr_quat = self.data.sensor('imu_quat').data.copy()
+        pos = self.data.sensor('frame_pos').data[:2].copy()   
+        vel = self.data.sensor('frame_vel').data[:2].copy()
+        quat = self.data.sensor('imu_quat').data.copy()
 
-        q_imu = np.quaternion(curr_quat[0], curr_quat[1], curr_quat[2], curr_quat[3])
-        curr_yaw = np.arctan2(2.0*(q_imu.w*q_imu.z + q_imu.x*q_imu.y), 1.0 - 2.0*(q_imu.y*q_imu.y + q_imu.z*q_imu.z))
-        curr_roll = np.arctan2(2.0*(q_imu.w*q_imu.x + q_imu.y*q_imu.z), 1.0 - 2.0*(q_imu.x*q_imu.x + q_imu.y*q_imu.y))
-        curr_pitch = np.arcsin(2.0*(q_imu.w*q_imu.y - q_imu.z*q_imu.x))
+        q_imu = np.quaternion(quat[0], quat[1], quat[2], quat[3])
+        yaw = np.arctan2(2.0*(q_imu.w*q_imu.z + q_imu.x*q_imu.y), 1.0 - 2.0*(q_imu.y*q_imu.y + q_imu.z*q_imu.z))
+        roll = np.arctan2(2.0*(q_imu.w*q_imu.x + q_imu.y*q_imu.z), 1.0 - 2.0*(q_imu.x*q_imu.x + q_imu.y*q_imu.y))
+        pitch = np.arcsin(2.0*(q_imu.w*q_imu.y - q_imu.z*q_imu.x))
 
+        contact_F = np.linalg.norm(self.data.sensordata[-4:])
+        
         joint_vel = []
         joint_acc = self.data.qacc 
         joint_torques = []
@@ -298,22 +245,16 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
                 joint_vel.append(self.data.sensor(JOINT_NAME[:-5] + "vel").data)
 
         if self.config['verbose']:
-            display("INFO", f"joint_pos: {curr_pos}")
-            display("INFO", f"joint_vel: {curr_vel}")
-            display("INFO", f"rpy: {curr_roll, curr_pitch, curr_yaw - self.init_yaw}")
+            display("INFO", f"joint_pos: {pos}")
+            display("INFO", f"joint_vel: {vel}")
+            display("INFO", f"rpy: {roll, pitch, yaw - self.init_yaw}")
                 
-        terminated = self.get_terminated(observation, theta, base_theta)
+        terminated = self.get_terminated(observation, theta, base_theta, contact_F)
 
         if terminated:
-            if self.config['enable_walking']:
-                if self.config['command_vel']:
-                    reward = -1 - 0.5 * np.linalg.norm(np.abs(curr_vel) - 0.5 * np.array([self.commands[0], self.commands[0]])) * np.exp(-1) - np.linalg.norm((curr_yaw - self.init_yaw) - self.commands[1]) * np.exp(-1) 
-                else:
-                    reward = -1 - 0.5 * np.linalg.norm((curr_pos) - self.commands) * np.exp(-1)
-            else:
-                reward = -1
+            reward = -1
         else:
-            reward = self.get_reward(theta, curr_pos, curr_vel, curr_yaw - self.init_yaw, joint_torques, joint_vel, joint_acc)
+            reward = self.get_reward(theta, contact_F, joint_torques, joint_vel, joint_acc)
 
         info = {"reward_survive": reward,
                 "reward_dict" : self.reward_dict}
@@ -344,16 +285,6 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         q_imu = np.quaternion(curr_quat[0], curr_quat[1], curr_quat[2], curr_quat[3])
         self.init_yaw = np.arctan2(2.0*(q_imu.w*q_imu.z + q_imu.x*q_imu.y), 1.0 - 2.0*(q_imu.y*q_imu.y + q_imu.z*q_imu.z))   
 
-        if self.config['enable_walking']:
-            if self.config['command_vel']:
-                self.commands[0] = self.walking_speed
-                self.commands[1] = self.np_random.uniform(self.command_ranges["heading"][0], self.command_ranges["heading"][1])
-                display("INFO", f"Command: heading = {self.commands[1]}, speed = {self.commands[0]}")
-            else:
-                self.commands[0] = self.np_random.uniform(self.command_ranges["pos_x"][0], self.command_ranges["pos_x"][1])
-                self.commands[1] = self.np_random.uniform(self.command_ranges["pos_y"][0], self.command_ranges["pos_y"][1])
-                display("INFO", f"Command: x = {self.commands[0]}, y = {self.commands[1]}")
-
         return self._get_obs()
 
     def _get_obs(self):
@@ -365,16 +296,7 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         q = np.quaternion(quat[0], quat[1], quat[2], quat[3])
         yaw = np.arctan2(2.0*(q.w*q.z + q.x*q.y), 1.0 - 2.0*(q.y*q.y + q.z*q.z))
 
-        if not self.config['enable_walking']:
-            if self.config['store_history']:
-                return np.concatenate([self.data.qpos, self.data.qvel, self.prev_actions[0], self.prev_actions[1]]).ravel()
-            else:
-                return np.concatenate([self.data.qpos, self.data.qvel]).ravel()
-        else:
-            if self.config['command_vel']:
-                return np.concatenate([self.data.qpos, self.data.qvel, vel, [yaw], self.commands, self.prev_actions[0], self.prev_actions[1]]).ravel()
-            else:
-                return np.concatenate([self.data.qpos, self.data.qvel, pos, vel, [yaw], self.commands, self.prev_actions[0], self.prev_actions[1]]).ravel() 
+        return np.concatenate([self.data.qpos, self.data.qvel, self.prev_actions[0], self.prev_actions[1]]).ravel()
 
     def controller(self, model, data):
         #pd controller : takes error and desired velocity as input, outputs the instantaneous torque
@@ -395,41 +317,22 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         self.action_space = spaces.Box(low=-2, high=2, shape=(12,), dtype=np.float32)
         return self.action_space
 
-    def get_reward(self, theta, curr_pos, curr_vel, curr_heading, curr_torq, curr_joint_vel, curr_joint_acc):
-    
-        max_contact_F = np.linalg.norm(self.data.sensordata[-4:], np.inf)
-        if(max_contact_F >= 300):
-            self.reward_dict["contact_force_penalty"] = -1
-            return -1
-        else:
-            if not self.config['sparse_reward']:
-                
-                self.reward_dict["balance_reward"] = self.config['r_theta_tracking'] - np.abs((theta - 0.0)) * np.exp(-1)
+    def get_reward(self, theta, contact_F, curr_torq, curr_joint_vel, curr_joint_acc):
+        self.reward_dict["balance_reward"] = self.config['r_theta_tracking'] - np.abs((theta - 0.0)) * np.exp(-1)
+        self.reward_dict["joint_torques_penalty"] = self.config['r_joint_torques_penalty'] * np.linalg.norm(curr_torq)
+        self.reward_dict["joint_acc_penalty"] = self.config['r_joint_acc_penalty'] * np.linalg.norm(curr_joint_acc)
+        self.reward_dict["joint_vel_penalty"] = self.config['r_joint_vel_penalty'] * np.linalg.norm(curr_joint_vel)
+        self.reward_dict["contact_force_penalty"] = self.config['r_contact_force_penalty'] * contact_F
+        self.reward_dict["pend_tipping_penalty"] = 0.0
+        self.reward_dict["base_tipping_penalty"] = 0.0
+        self.reward_dict["infinite_obs"] = 0.0
 
-                if self.config["enable_walking"]:
-                    if self.config['command_vel']:
-                        self.reward_dict["linear_vel_tracking"] = self.config['r_linear_vel_tracking'] - np.linalg.norm(np.abs(curr_vel) - np.array([self.commands[0], self.commands[0]])) * np.exp(-1)
-                        self.reward_dict["heading_tracking"] = self.config['r_heading_tracking'] - np.linalg.norm((curr_heading) - self.commands[1]) * np.exp(-1)
-                    else:
-                        self.reward_dict["pos_tracking"] = self.config['r_pos_tracking'] - np.linalg.norm((curr_pos) - self.commands) * np.exp(-1)
+        if self.config['verbose']:
+            display("INFO", f"reward_dict: {self.reward_dict}")
 
-                self.reward_dict["joint_torques_penalty"] = self.config['r_joint_torques_penalty'] * np.linalg.norm(curr_torq)
-                self.reward_dict["joint_acc_penalty"] = self.config['r_joint_acc_penalty'] * np.linalg.norm(curr_joint_acc)
-                self.reward_dict["joint_vel_penalty"] = self.config['r_joint_vel_penalty'] * np.linalg.norm(curr_joint_vel)
-                self.reward_dict["contact_force_penalty"] = self.config['r_contact_force_penalty'] * max_contact_F
-                self.reward_dict["pend_tipping_penalty"] = 0.0
-                self.reward_dict["base_tipping_penalty"] = 0.0
-                self.reward_dict["infinite_obs"] = 0.0
-
-                if self.config['verbose']:
-                    display("INFO", f"reward_dict: {self.reward_dict}")
-
-                return sum(self.reward_dict.values())
-            else:
-                self.reward_dict["balance_reward"] = 1
-                return 1
+        return sum(self.reward_dict.values())
         
-    def get_terminated(self, observation, theta, base_theta):
+    def get_terminated(self, observation, theta, base_theta, contact_F):
         if not np.isfinite(observation).all():
             self.reward_dict["infinite_obs"] = -1
             return True

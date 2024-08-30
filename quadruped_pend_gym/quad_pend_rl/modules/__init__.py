@@ -3,6 +3,5 @@
 from .actor import Actor
 from .critic import QNetwork
 from .utils import make_env
-from .per import PER
 
-__all__ = ["Actor", "QNetwork", "make_env", "PER"]
+__all__ = ["Actor", "QNetwork", "make_env"]
