@@ -80,9 +80,8 @@ class TD3():
 
         # start the env
         obs, _ = self.envs.reset(seed=self.args['seed'])
-        global_step = 0
 
-        while global_step in range(int(self.args['total_timesteps'])):
+        for global_step in range(int(self.args['total_timesteps'])):
             if global_step < int(self.args['learning_starts']):
                 actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
             else:
@@ -154,11 +153,9 @@ class TD3():
                     self.writer.add_scalar("losses/qf2_loss", self.qf2_loss.item(), global_step)
                     self.writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
                     self.writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
-                    print("SPS:", int(global_step / (time.time() - start_time)))
-                    self.writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+                    print("SPS:", int((global_step * self.args['num_envs']) / (time.time() - start_time)))
+                    self.writer.add_scalar("charts/SPS", int((global_step  * self.args['num_envs'])/ (time.time() - start_time)), global_step)
             
-            global_step += self.args['num_envs']
-        
         
         if self.args['save_model']:
             model_path = f"runs/{self.run_name}/{self.exp_name}.cleanrl_model"
