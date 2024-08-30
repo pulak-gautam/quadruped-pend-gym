@@ -34,9 +34,11 @@ class TD3():
         self.writer = SummaryWriter(f"runs/{self.run_name}")
         self.device = torch.device("cuda" if torch.cuda.is_available() and self.args['cuda'] else "cpu")
 
-        self.envs = gym.vector.SyncVectorEnv([make_env(self.args['env_id'], 0, self.args['capture_video'], self.run_name, self.args['gamma'])])
+        self.envs = gym.vector.SyncVectorEnv([make_env(self.args['env_id'], 0, self.args['capture_video'], self.run_name, self.args['gamma']) for i in range(self.args['num_envs'])])
         assert isinstance(self.envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
-    
+# torch.Size([256, 12])
+# torch.Size([2, 12])
+
     def setup(self):
         self.actor = Actor(self.envs).to(self.device)
         self.qf1 = QNetwork(self.envs).to(self.device)
@@ -59,6 +61,7 @@ class TD3():
             self.envs.single_action_space,
             self.device,
             handle_timeout_termination=False,
+            n_envs=self.args['num_envs'],
         )
 
         self.writer.add_text(
@@ -77,7 +80,9 @@ class TD3():
 
         # start the env
         obs, _ = self.envs.reset(seed=self.args['seed'])
-        for global_step in range(int(self.args['total_timesteps'])):
+        global_step = 0
+
+        while global_step in range(int(self.args['total_timesteps'])):
             if global_step < int(self.args['learning_starts']):
                 actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
             else:
@@ -91,10 +96,11 @@ class TD3():
             # logging returns
             if "episode" in infos:
                 print(f"global_step={global_step}, episodic_return={infos['episode']['r']}")
-                self.writer.add_scalar("charts/episodic_return", infos["episode"]["r"], global_step)
-                self.writer.add_scalar("charts/episodic_length", infos["episode"]["l"], global_step)
+                self.writer.add_scalar("charts/episodic_return", np.sum(r for r in infos["episode"]["r"] if r != 0) / np.sum(1 for r in infos["episode"]["r"] if r != 0), global_step) 
+                self.writer.add_scalar("charts/episodic_length", np.sum(l for l in infos["episode"]["l"] if l != 0) / np.sum(1 for l in infos["episode"]["l"] if l != 0), global_step) 
 
             real_next_obs = next_obs.copy()
+            # print(obs.shape)
             self.rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
 
             obs = next_obs
@@ -150,6 +156,8 @@ class TD3():
                     self.writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     self.writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+            
+            global_step += self.args['num_envs']
         
         
         if self.args['save_model']:
