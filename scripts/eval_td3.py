@@ -54,9 +54,17 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model_path = "./models/td3.model"
+    parser = argparse.ArgumentParser(description="model path")
+    parser.add_argument(
+        '--model_path', 
+        type=str, 
+        default="./models/td3.model", 
+        help='Path to the model'
+    )
+    args = parser.parse_args()
+
     evaluate(
-        model_path,
+        args.model_path,
         make_env,
         "Quadruped-Pend-v1",
         eval_episodes=10,

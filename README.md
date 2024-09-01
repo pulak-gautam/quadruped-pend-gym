@@ -24,7 +24,10 @@ pip install -e .
 # run example standup script
 python3 tests/test_quad_standup.py
 
-# run td3 based training script for balancing inverted pend
-python3 quadruped_pend_gym/quad_pend_rl/scripts/train.py
+# train td3 agent for balancing inverted pend
+python3 scripts/train_td3.py
+
+# evaluate td3 agent for balancing inverted pend, make sure to change 
+python3 scripts/eval_td3.py --model_path <model-path>
 ```
  
