@@ -31,3 +31,6 @@ python3 scripts/train_td3.py
 python3 scripts/eval_td3.py --model_path <model-path>
 ```
  
+## References
+- TD3 implementation has been heavily derived from [cleanrl](https://github.com/vwxyzjn/cleanrl/tree/master)
+- Reward shaping has been inspired by [legged_gym](https://arxiv.org/abs/2109.11978)
