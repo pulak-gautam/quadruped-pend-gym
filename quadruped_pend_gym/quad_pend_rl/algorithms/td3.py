@@ -158,7 +158,7 @@ class TD3():
             
         
         if self.args['save_model']:
-            model_path = f"runs/{self.run_name}/{self.exp_name}.cleanrl_model"
+            model_path = f"runs/{self.run_name}/{self.exp_name}.model"
             torch.save((self.actor.state_dict(), self.qf1.state_dict(), self.qf2.state_dict()), model_path)
             print(f"model saved to {model_path}")
             

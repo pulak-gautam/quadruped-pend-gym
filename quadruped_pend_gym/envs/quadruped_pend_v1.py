@@ -262,6 +262,15 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         if self.render_mode == "human":
             self.render()
 
+        if self.config['verbose']:
+            q_ = [self.data.joint('pole_joint').qpos[0], self.data.joint('pole_joint').qpos[1], self.data.joint('pole_joint').qpos[2], self.data.joint('pole_joint').qpos[3]]
+            for i, pos_ in enumerate(self.data.qpos):
+                if pos_ == q_[0]:
+                    if self.data.qpos[i+1] == q_[1]:
+                        if self.data.qpos[i+2] == q_[2]:
+                            if self.data.qpos[i+3] == q_[3]:
+                                display("INFO", f"pole_joint qpos at index {i}")
+
         # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
         return observation, reward, terminated, False, info
 
@@ -274,6 +283,10 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
 
         qpos = self.init_qpos + self.np_random.uniform(
             size=self.model.nq, low=noise_low, high=noise_high
+        )
+        #setting larger noise (10 times reset_scale_noise) in pole joint, so as to start it slightly off the upwards pose
+        qpos[7:11] = self.init_qpos[7:11] + self.np_random.uniform(
+            size=4, low=noise_low*10, high=noise_high*10
         )
         qvel = self.init_qvel + self.np_random.uniform(
             size=self.model.nv, low=noise_low, high=noise_high
