@@ -1,3 +1,4 @@
+import os
 import xml.etree.ElementTree as ET
 import math
 import argparse
@@ -56,8 +57,9 @@ class XmlGenerator():
         self.MoI = [ (1/12) * self.m * self.h*self.h + 1/4 * self.m * self.r*self.r,  (1/12) * self.m * self.h*self.h + 1/4 * self.m * self.r*self.r,  (1/2) * self.m * self.r*self.r ]
         
     def run(self, 
-            xml_path: str = "./quadruped_pend_gym/models/go2/go2.xml", 
-            out_path: str = "./quadruped_pend_gym/models/go2/go2.xml"
+    
+            xml_path: str = os.path.join(os.path.dirname(__file__), "../models/go2/go2.xml"), 
+            out_path: str = os.path.join(os.path.dirname(__file__), "../models/go2/go2.xml")
         ):
         tree = ET.parse(xml_path)
         root = tree.getroot()

@@ -2,6 +2,7 @@ __credits__ = ["Pulak-Gautam"]
 
 from typing import Dict, Union
 
+import os
 import math
 import numpy as np
 import quaternion
@@ -112,7 +113,7 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
 
     def __init__(
         self,
-        xml_file: str = "./quadruped_pend_gym/models/go2/scene.xml", #TODO: add robot model choice in config (eg. config['robot'] = go2)
+        xml_file: str = os.path.join(os.path.dirname(__file__), "../models/go2/scene.xml") , #TODO: add robot model choice in config (eg. config['robot'] = go2)
         frame_skip: int = 2, 
         default_camera_config: Dict[str, Union[float, int]] = None,
         reset_noise_scale: float = None,
@@ -124,7 +125,7 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
                 self.config = yaml.safe_load(file)
         except:
             display("WARNING", "Yaml file not found, using default config")
-            with open("./quadruped_pend_gym/config/env_config.yaml", 'r') as file:
+            with open(os.path.join(os.path.dirname(__file__), "../config/env_config.yaml"), 'r') as file:
                 self.config = yaml.safe_load(file)
 
         if self.config['set_pend_params']:
@@ -288,9 +289,9 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         qpos = self.init_qpos + self.np_random.uniform(
             size=self.model.nq, low=noise_low, high=noise_high
         )
-        #setting larger noise (10 times reset_scale_noise) in pole joint, so as to start it slightly off the upwards pose
+        #IMPORTANT: setting larger noise (10 times reset_scale_noise) in pole joint, so as to start it slightly off the upwards pose
         qpos[7:11] = self.init_qpos[7:11] + self.np_random.uniform(
-            size=4, low=noise_low*10, high=noise_high*10
+            size=4, low=noise_low*5, high=noise_high*5
         )
         qvel = self.init_qvel + self.np_random.uniform(
             size=self.model.nv, low=noise_low, high=noise_high
