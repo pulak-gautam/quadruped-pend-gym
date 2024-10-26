@@ -23,9 +23,16 @@ register(
     max_episode_steps=1000,
 )
 
+register(
+    id="Quadruped-Pend-v2",
+    entry_point="quadruped_pend_gym:QuadrupedPendEnv_v2",
+    max_episode_steps=1000,
+)
+
 # Main names:
 __all__ = [
     make.__name__,
     QuadrupedPendEnv_v0.__name__,
     QuadrupedPendEnv_v1.__name__,
+    QuadrupedPendEnv_v2.__name__,
 ]

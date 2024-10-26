@@ -18,7 +18,7 @@ from scipy.spatial.transform import Rotation
 
 from quadruped_pend_gym.envs.utils import XmlGenerator, display, phi_F
 
-class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
+class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
     """
     ## Action Space
     The agent take a 12-element vector for actions.
@@ -140,7 +140,7 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         frame_skip = self.config['frame_skip']
         camera_config = self.config['camera_config']
 
-        observation_space = Box(low=-np.inf, high=np.inf, shape=(70,), dtype=np.float64)
+        observation_space = Box(low=-np.inf, high=np.inf, shape=(42 + self.config['hist_buffer_l']*12,), dtype=np.float64)
 
         utils.EzPickle.__init__(self, xml_file, frame_skip, reset_noise_scale, **kwargs)
         MujocoEnv.__init__(
@@ -162,39 +162,57 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         }
 
         self.observation_structure = {
-            "theta" : np.size([0.0]),
+            "theta" : np.size([0.0]), 
             "base_theta" : np.size([0.0]),
             "qpos": self.data.qpos.size,
             "qvel": self.data.qvel.size,
-            "prev_action" : np.size(self.config['joint_names']) - 1,
-            "prev_prev_action" : np.size(self.config['joint_names']) - 1
+            "prev_actions" : (np.size(self.config['stand_up_joint_pos'])) * self.config['action_buffer_l'],
+            "prev_states"  : (np.size([0.0, 0.0])) * self.config['obs_buffer_l'] # history of (theta, base_theta)
         }
 
         self.joint_pos = np.zeros(np.size(self.config['stand_up_joint_pos']))
 
-        self.prev_actions = [
-            np.zeros(np.size(self.config['stand_up_joint_pos'])),
-            np.zeros(np.size(self.config['stand_up_joint_pos'])),
-        ]
+        self.prev_actions = np.zeros(np.size(
+                                        self.config['action_buffer_l'], 
+                                        np.size(self.config['stand_up_joint_pos'])[0]
+                                    ))
+        self.prev_states = np.zeros(np.size(self.config['obs_buffer_l'], 2))
 
         self.init_base_angle = None
         self.init_yaw = None
         self.theta = None
         self.base_theta = None
+        self.pos = None
+        self.vel = None
+        self.quat = None
+        self.roll = self.pitch = self.yaw = None
+
+        self.prev_contacts = None
+        self.contacts = None
+        self.feet_air_time = np.zeros(np.size([0.0, 0.0, 0.0, 0.0]))
+        self.dt = 0.02 #defined in go2.xml:L64
 
         self.reward_dict = {
+            "linear_vel_tracking" : 0.0
+            "angular_vel_tracking" : 0.0,
             "balance_reward" : 0.0,
 
+            "linear_vel_penalty" : 0.0,
+            "angular_vel_penalty" : 0.0,
+            "feet_air_time_reward": 0.0,
+            "contact_force_penalty" : 0.0,
             "joint_torques_penalty" : 0.0,
             "joint_vel_penalty"  : 0.0,
             "joint_acc_penalty"  : 0.0,
 
             "pend_tipping_penalty"  : 0.0,
             "base_tipping_penalty" : 0.0,
-
-            "contact_force_penalty" : 0.0,
+            
             "infinite_obs"  : 0.0
         }
+
+        self.command_vel = 0.20
+        self.command_yaw = 0
     
     def step(self, action):
 
@@ -211,8 +229,16 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         for _ in range(self.frame_skip):
             mj.mj_step(self.model, self.data)
 
-        self.prev_actions[1] = self.prev_actions[0] 
+        # populate prev_actions and prev_states buffers
+        for i in 1:range(np.shape(prev_actions)[0]):
+            self.prev_actions[i] = self.prev_actions[i-1] 
         self.prev_actions[0] = action
+
+        for i in 1:range(np.shape(prev_states)[0]):
+            self.prev_states[i] = self.prev_states[i-1] 
+        if self.theta is not None and self.base_theta is not None:
+            self.prev_states[0] = np.concatenate([np.array([self.theta, self.base_theta])]).ravel().astype(np.float32)
+        
 
         q_init = np.quaternion(1.0, 0.0, 0.0, 0.0)
         q_final = np.quaternion(self.data.sensordata[0], self.data.sensordata[1], self.data.sensordata[2], self.data.sensordata[3])
@@ -224,14 +250,18 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         qd_base = np.conjugate(q_init_base) * q_final_base
         self.base_theta = 2 * np.arctan2(np.sqrt(qd_base.x*qd_base.x + qd_base.y*qd_base.y + qd_base.z*qd_base.z), qd_base.w)
 
-        pos = self.data.sensor('frame_pos').data[:2].copy()   
-        vel = self.data.sensor('frame_vel').data[:2].copy()
-        quat = self.data.sensor('imu_quat').data.copy()
+        self.pos = self.data.sensor('frame_pos').data[:2].copy()   
+        self.vel = self.data.sensor('frame_vel').data[:2].copy()
+        self.quat = self.data.sensor('imu_quat').data.copy()
 
         q_imu = np.quaternion(quat[0], quat[1], quat[2], quat[3])
-        yaw = np.arctan2(2.0*(q_imu.w*q_imu.z + q_imu.x*q_imu.y), 1.0 - 2.0*(q_imu.y*q_imu.y + q_imu.z*q_imu.z))
-        roll = np.arctan2(2.0*(q_imu.w*q_imu.x + q_imu.y*q_imu.z), 1.0 - 2.0*(q_imu.x*q_imu.x + q_imu.y*q_imu.y))
-        pitch = np.arcsin(2.0*(q_imu.w*q_imu.y - q_imu.z*q_imu.x))
+        self.yaw = np.arctan2(2.0*(q_imu.w*q_imu.z + q_imu.x*q_imu.y), 1.0 - 2.0*(q_imu.y*q_imu.y + q_imu.z*q_imu.z))
+        self.roll = np.arctan2(2.0*(q_imu.w*q_imu.x + q_imu.y*q_imu.z), 1.0 - 2.0*(q_imu.x*q_imu.x + q_imu.y*q_imu.y))
+        self.pitch = np.arcsin(2.0*(q_imu.w*q_imu.y - q_imu.z*q_imu.x))
+
+        self.prev_contacts = self.contacts
+        self.contacts = self.data.sensordata[-4:] > 1
+
         contact_F = np.linalg.norm(self.data.sensordata[-4:])
         
         joint_vel = []
@@ -259,7 +289,7 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         if terminated:
             reward = -1
         else:
-            reward = self.get_reward(contact_F, joint_torques, joint_vel, joint_acc)
+            reward = self.get_reward(contact_F, joint_torques, joint_vel, joint_acc, prev_contacts, contacts)
 
         info = {"reward_survive": reward,
                 "reward_dict" : self.reward_dict}
@@ -291,7 +321,7 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         )
         #IMPORTANT: setting larger noise (10 times reset_scale_noise) in pole joint, so as to start it slightly off the upwards pose
         qpos[7:11] = self.init_qpos[7:11] + self.np_random.uniform(
-            size=4, low=noise_low*5, high=noise_high*5
+            size=4, low=noise_low, high=noise_high
         )
         qvel = self.init_qvel + self.np_random.uniform(
             size=self.model.nv, low=noise_low, high=noise_high
@@ -328,7 +358,7 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         assert self.theta is not None, "self.theta is None, expected a float64"   
         assert self.base_theta is not None, "self.base_theta is None, expected a float64"   
 
-        return np.concatenate([np.array([self.theta, self.base_theta]), self.data.qpos, self.data.qvel, self.prev_actions[0], self.prev_actions[1]]).ravel().astype(np.float32)
+        return np.concatenate([np.array([self.theta, self.base_theta]), self.data.qpos, self.data.qvel, self.prev_actions, self.prev_states]).ravel().astype(np.float32)
 
     def controller(self, model, data):
         #pd controller : takes error and desired velocity as input, outputs the instantaneous torque
@@ -355,6 +385,13 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
         self.reward_dict["joint_acc_penalty"] = self.config['r_joint_acc_penalty'] * np.linalg.norm(curr_joint_acc)
         self.reward_dict["joint_vel_penalty"] = self.config['r_joint_vel_penalty'] * np.linalg.norm(curr_joint_vel)
         self.reward_dict["contact_force_penalty"] = self.config['r_contact_force_penalty'] * contact_F
+        self.reward_dict["feet_air_time_reward"] = self.config['r_feet_air_time'] * self.get_air_time()
+
+        self.reward_dict["linear_vel_tracking"] = self.config['r_linear_vel_tracking'] - np.abs((self.vel[0] - self.command_vel)) * np.exp(-1)
+        self.reward_dict["angular_vel_tracking"] = self.config['r_angular_vel_tracking'] - np.abs((self.yaw - self.command_yaw)) * np.exp(-1)
+        self.reward_dict["linear_vel_penalty"] = self.config['r_linear_vel_penalty'] * np.linalg.norm(self.vel[2])
+        self.reward_dict["angular_vel_penalty"] = self.config['r_angular_vel_penalty'] * np.linalg.norm([self.roll, self.pitch]) #keep the coeff small (for balancing bending is needed)
+
         self.reward_dict["pend_tipping_penalty"] = 0.0
         self.reward_dict["base_tipping_penalty"] = 0.0
         self.reward_dict["infinite_obs"] = 0.0
@@ -363,6 +400,20 @@ class QuadrupedPendEnv_v1(MujocoEnv, utils.EzPickle):
             display("INFO", f"reward_dict: {self.reward_dict}")
 
         return sum(self.reward_dict.values())
+    
+    def get_air_time(self):
+        if contacts is None or prev_contacts is None:
+            return 0
+        contact_filt = torch.logical_or(self.contact, self.last_contacts) 
+        first_contact = (self.feet_air_time > 0.) * contact_filt
+        self.feet_air_time += self.dt
+
+        display("INFO", f"Feet contacts: {contact_filt}, Feet air times: {self.feet_air_time}")
+
+        rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) # reward only on first contact with the ground
+        # rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #TODO:no reward for zero command
+        self.feet_air_time *= ~contact_filt
+        return rew_airTime
         
     def get_terminated(self, observation, contact_F):
         if not np.isfinite(observation).all():
