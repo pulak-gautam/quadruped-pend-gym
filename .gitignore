@@ -12,6 +12,7 @@ venv/
 # Training results / videos
 videos/
 runs/
+wandb/
 
 # VSCode IDE
 .vscode/
