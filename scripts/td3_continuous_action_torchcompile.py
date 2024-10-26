@@ -266,6 +266,7 @@ if __name__ == "__main__":
     max_ep_ret = -float("inf")
     avg_returns = deque(maxlen=20)
     desc = ""
+    autoreset = False
 
     for global_step in pbar:
         if global_step == args.measure_burnin + args.learning_starts:
@@ -279,10 +280,8 @@ if __name__ == "__main__":
             actions = policy(obs=obs)
             actions = actions.clamp(action_low, action_high).cpu().numpy()
 
-        # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
-        # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "episode" in infos:
             r = float(infos["episode"]["r"].reshape(()))
             max_ep_ret = max(max_ep_ret, r)
@@ -291,27 +290,24 @@ if __name__ == "__main__":
             f"global_step={global_step}, episodic_return={torch.tensor(avg_returns).mean(): 4.2f} (max={max_ep_ret: 4.2f})"
         )
 
-        # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         next_obs = torch.as_tensor(next_obs, device=device, dtype=torch.float)
         real_next_obs = next_obs.clone()
-        if "final_observation" in infos:
-            print(infos.keys())
-            real_next_obs[truncations] = torch.as_tensor(
-                np.asarray(list(infos["final_observation"][truncations]), dtype=np.float32), device=device, dtype=torch.float
-            )
-        # obs = torch.as_tensor(obs, device=device, dtype=torch.float)
-        transition = TensorDict(
-            observations=obs,
-            next_observations=real_next_obs,
-            actions=torch.as_tensor(actions, device=device, dtype=torch.float),
-            rewards=torch.as_tensor(rewards, device=device, dtype=torch.float),
-            terminations=terminations,
-            dones=terminations,
-            batch_size=obs.shape[0],
-            device=device,
-        )
 
-        # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
+        # save data to reply buffer; handle `final_observation`
+        if not autoreset:
+            transition = TensorDict(
+                observations=obs,
+                next_observations=real_next_obs,
+                actions=torch.as_tensor(actions, device=device, dtype=torch.float),
+                rewards=torch.as_tensor(rewards, device=device, dtype=torch.float),
+                terminations=terminations,
+                dones=terminations,
+                batch_size=obs.shape[0],
+                device=device,
+            )
+
+        autoreset = np.logical_or(terminations, truncations)
+
         obs = next_obs
         data = extend_and_sample(transition)
 
