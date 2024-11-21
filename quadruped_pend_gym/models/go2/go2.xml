@@ -209,8 +209,8 @@
   </actuator>
 
   <sensor>
-    <framequat name="pole_pos" objtype="body" objname="pole" />
-    <framequat name="base_pos" objtype="body" objname="base_link" />
+    <framequat name="pole_quat" objtype="body" objname="pole" />
+    <framequat name="base_quat" objtype="body" objname="base_link" />
     
     <jointpos name="FR_hip_pos" joint="FR_hip_joint" />
     <jointpos name="FR_thigh_pos" joint="FR_thigh_joint" />
@@ -266,6 +266,16 @@
     <force name="FL_contact" site="FL_foot" noise="0.01" />
     <force name="RR_contact" site="RR_foot" noise="0.01" />
     <force name="RL_contact" site="RL_foot" noise="0.01" />
+
+    <framelinvel name="FR_vel" objtype="site" objname="FR_foot" />
+    <framelinvel name="FL_vel" objtype="site" objname="FL_foot" />
+    <framelinvel name="RR_vel" objtype="site" objname="RR_foot" />
+    <framelinvel name="RL_vel" objtype="site" objname="RL_foot" />
+    
+    <framepos name="FR_pos" objtype="site" objname="FR_foot" />
+    <framepos name="FL_pos" objtype="site" objname="FL_foot" />
+    <framepos name="RR_pos" objtype="site" objname="RR_foot" />
+    <framepos name="RL_pos" objtype="site" objname="RL_foot" />
   </sensor>
 
   

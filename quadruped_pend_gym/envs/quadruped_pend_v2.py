@@ -15,6 +15,7 @@ from gymnasium import spaces
 from gymnasium.spaces import Box
 
 from scipy.spatial.transform import Rotation
+from scipy.stats import norm
 
 from quadruped_pend_gym.envs.utils import XmlGenerator, display, phi_F
 
@@ -121,7 +122,7 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
         **kwargs,
     ):
         try:
-            with open(config_path, 'r') as file:
+            with open(config_file, 'r') as file:
                 self.config = yaml.safe_load(file)
         except:
             display("WARNING", "Yaml file not found, using default config")
@@ -136,12 +137,12 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
             XmlGenerator().run()
         
         self._reset_noise_scale = self.config['reset_noise_scale']
-
         frame_skip = self.config['frame_skip']
         camera_config = self.config['camera_config']
 
-        observation_space = Box(low=-np.inf, high=np.inf, shape=(42 + self.config['hist_buffer_l']*12,), dtype=np.float64)
-
+        observation_space = Box(low=-np.inf, high=np.inf, shape=(46 + 
+                                                                 self.config['action_buffer_l']*12 + 
+                                                                 self.config['obs_buffer_l']*2,), dtype=np.float64)
         utils.EzPickle.__init__(self, xml_file, frame_skip, reset_noise_scale, **kwargs)
         MujocoEnv.__init__(
             self,
@@ -170,14 +171,10 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
             "prev_states"  : (np.size([0.0, 0.0])) * self.config['obs_buffer_l'] # history of (theta, base_theta)
         }
 
-        self.joint_pos = np.zeros(np.size(self.config['stand_up_joint_pos']))
-
-        self.prev_actions = np.zeros(np.size(
-                                        self.config['action_buffer_l'], 
-                                        np.size(self.config['stand_up_joint_pos'])[0]
-                                    ))
-        self.prev_states = np.zeros(np.size(self.config['obs_buffer_l'], 2))
-
+        self.action_size = np.shape(self.config['stand_up_joint_pos'])[0]
+        self.joint_pos = np.zeros(self.action_size)
+        self.prev_actions = np.zeros(self.config['action_buffer_l'] * self.action_size)
+        self.prev_states = np.zeros(self.config['obs_buffer_l'] * 2)
         self.init_base_angle = None
         self.init_yaw = None
         self.theta = None
@@ -185,60 +182,54 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
         self.pos = None
         self.vel = None
         self.quat = None
+        self.ang_vel = None
         self.roll = self.pitch = self.yaw = None
-
-        self.prev_contacts = None
-        self.contacts = None
+        self.last_contacts = None
+        self.contacts = np.array([True, True, True, True])
         self.feet_air_time = np.zeros(np.size([0.0, 0.0, 0.0, 0.0]))
-        self.dt = 0.02 #defined in go2.xml:L64
+        self.foot_positions = None
+        self.foot_velocities = None
 
-        self.reward_dict = {
-            "linear_vel_tracking" : 0.0
-            "angular_vel_tracking" : 0.0,
-            "balance_reward" : 0.0,
+        self.reward_scales = self.config['reward_scales']
+        self.reward_dict = {}
+        self.command_vel = 0.0
+        self.command_yaw = 0.0
 
-            "linear_vel_penalty" : 0.0,
-            "angular_vel_penalty" : 0.0,
-            "feet_air_time_reward": 0.0,
-            "contact_force_penalty" : 0.0,
-            "joint_torques_penalty" : 0.0,
-            "joint_vel_penalty"  : 0.0,
-            "joint_acc_penalty"  : 0.0,
+        self.reward_container = None
+        self.reward_functions = None
+        self.rew_buf = None
+        self.rew_buf_neg = None
+        self.rew_buf_neg = None
 
-            "pend_tipping_penalty"  : 0.0,
-            "base_tipping_penalty" : 0.0,
-            
-            "infinite_obs"  : 0.0
-        }
-
-        self.command_vel = 0.20
-        self.command_yaw = 0
-    
-    def step(self, action):
-
-        if self.config['verbose']:
-            display("INFO", f"Number of geoms in model is:{self.model.ngeom}")
-            for i in range(self.model.ngeom):
-                display("INFO", f"geometry at index {i} is of type:{self.model.geom(i).type[0]} and size:{self.model.geom(i).size}")
-                display("INFO", f"position and orientation of body frame attached to geom at index {i} ({self.model.geom(i).name}) is ({(self.data.geom(i).xmat.reshape((3,3)))},{self.data.geom(i).xpos})")
-                display("INFO", f"sensor data:{self.data.sensordata}")
-            print("\n")
+        self.gaits = {"pronking": [0, 0, 0],
+            "trotting": [0.5, 0, 0],
+            "bounding": [0, 0.5, 0],
+            "pacing": [0, 0, 0.5]}
+        self.gait = np.array(self.gaits["trotting"])
+        self.control_dt = 0.02 * self.frame_skip
+        self.step_frequency_cmd = 3.0
+        self.gait_duration = 0.5
+        self.gait_indices = 0
+        self.foot_indices = None
+        self.clock_inputs = np.zeros(4)
+        self.doubletime_clock_inputs = np.zeros(4)
+        self.halftime_clock_inputs = np.zeros(4)
         
+    def step(self, action):
         self.joint_pos = action
 
         for _ in range(self.frame_skip):
             mj.mj_step(self.model, self.data)
 
         # populate prev_actions and prev_states buffers
-        for i in 1:range(np.shape(prev_actions)[0]):
-            self.prev_actions[i] = self.prev_actions[i-1] 
-        self.prev_actions[0] = action
+        assert action is not None, "action chosen is None"
+        assert self.theta is not None, "theta is None"
+        assert self.base_theta is not None, "base_theta is None" 
 
-        for i in 1:range(np.shape(prev_states)[0]):
-            self.prev_states[i] = self.prev_states[i-1] 
-        if self.theta is not None and self.base_theta is not None:
-            self.prev_states[0] = np.concatenate([np.array([self.theta, self.base_theta])]).ravel().astype(np.float32)
-        
+        self.prev_actions[self.action_size:] = self.prev_actions[:-self.action_size]
+        self.prev_actions[:self.action_size] = action
+        self.prev_states[2:] = self.prev_states[:-2]
+        self.prev_states[:2] = np.concatenate([np.array([self.theta, self.base_theta])]).ravel().astype(np.float32)       
 
         q_init = np.quaternion(1.0, 0.0, 0.0, 0.0)
         q_final = np.quaternion(self.data.sensordata[0], self.data.sensordata[1], self.data.sensordata[2], self.data.sensordata[3])
@@ -250,54 +241,80 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
         qd_base = np.conjugate(q_init_base) * q_final_base
         self.base_theta = 2 * np.arctan2(np.sqrt(qd_base.x*qd_base.x + qd_base.y*qd_base.y + qd_base.z*qd_base.z), qd_base.w)
 
-        self.pos = self.data.sensor('frame_pos').data[:2].copy()   
-        self.vel = self.data.sensor('frame_vel').data[:2].copy()
+        self.pole_quat = self.data.sensor('pole_quat').data.copy()
+        self.base_quat = self.data.sensor('base_quat').data.copy()
+        self.pos = self.data.sensor('frame_pos').data.copy()
+        self.vel = self.data.sensor('frame_vel').data.copy()
         self.quat = self.data.sensor('imu_quat').data.copy()
+        self.ang_vel = self.data.sensor('frame_ang_vel').data.copy()
 
-        q_imu = np.quaternion(quat[0], quat[1], quat[2], quat[3])
+        q_imu = np.quaternion(self.quat[0], self.quat[1], self.quat[2], self.quat[3])
         self.yaw = np.arctan2(2.0*(q_imu.w*q_imu.z + q_imu.x*q_imu.y), 1.0 - 2.0*(q_imu.y*q_imu.y + q_imu.z*q_imu.z))
         self.roll = np.arctan2(2.0*(q_imu.w*q_imu.x + q_imu.y*q_imu.z), 1.0 - 2.0*(q_imu.x*q_imu.x + q_imu.y*q_imu.y))
         self.pitch = np.arcsin(2.0*(q_imu.w*q_imu.y - q_imu.z*q_imu.x))
 
-        self.prev_contacts = self.contacts
-        self.contacts = self.data.sensordata[-4:] > 1
-
-        contact_F = np.linalg.norm(self.data.sensordata[-4:])
+        self.contact_forces = [  self.data.sensor('FR_contact').data.copy(), 
+                                 self.data.sensor('FL_contact').data.copy(), 
+                                 self.data.sensor('RR_contact').data.copy(), 
+                                 self.data.sensor('RL_contact').data.copy()
+                              ]
+        self.last_contacts = self.contacts
+        self.contacts = all(contact[2] > 10. for contact in self.contact_forces)
+        self.foot_positions = [  self.data.sensor('FR_pos').data.copy(), 
+                                 self.data.sensor('FL_pos').data.copy(), 
+                                 self.data.sensor('RR_pos').data.copy(), 
+                                 self.data.sensor('RL_pos').data.copy()
+                              ]
+        self.foot_velocities = [ self.data.sensor('FR_vel').data.copy(), 
+                                 self.data.sensor('FL_vel').data.copy(), 
+                                 self.data.sensor('RR_vel').data.copy(), 
+                                 self.data.sensor('RL_vel').data.copy()
+                               ]
         
-        joint_vel = []
-        joint_acc = self.data.qacc 
-        joint_torques = []
+        self.dof_vel = []
+        self.dof_acc = self.data.qacc 
+        self.torques = []
         for i, JOINT_NAME in enumerate(self.config['joint_names']):
             if JOINT_NAME == "pole_joint":
                 pass
             else:
-                joint_torques.append(self.data.sensor(JOINT_NAME[:-5] + "torque").data)
-                joint_vel.append(self.data.sensor(JOINT_NAME[:-5] + "vel").data)
+                self.torques.append(self.data.sensor(JOINT_NAME[:-5] + "torque").data)
+                self.dof_vel.append(self.data.sensor(JOINT_NAME[:-5] + "vel").data)
 
 
         observation = self._get_obs()
-
-        if self.config['verbose']:
-            display("INFO", f"joint_pos: {pos}")
-            display("INFO", f"joint_vel: {vel}")
-            display("INFO", f"rpy: {roll, pitch, yaw - self.init_yaw}")
-            display("INFO", f"theta: {self.theta}")
-            display("INFO", f"base_theta: {self.base_theta}")
-                
-        terminated = self.get_terminated(observation, contact_F)
+        terminated = self.get_terminated(observation)
 
         if terminated:
-            reward = -1
+            reward = self.config['rewards']['termination_reward']
         else:
-            reward = self.get_reward(contact_F, joint_torques, joint_vel, joint_acc, prev_contacts, contacts)
+            reward = self.get_reward()
 
         info = {"reward_survive": reward,
                 "reward_dict" : self.reward_dict}
+
+        self.step_contact_targets()
 
         if self.render_mode == "human":
             self.render()
 
         if self.config['verbose']:
+            display("INFO", f"Number of geoms in model is:{self.model.ngeom}")
+            for i in range(self.model.ngeom):
+                display("INFO", f"geometry at index {i} is of type:{self.model.geom(i).type[0]} and size:{self.model.geom(i).size}")
+                display("INFO", f"position and orientation of body frame attached to geom at index {i} ({self.model.geom(i).name}) is ({(self.data.geom(i).xmat.reshape((3,3)))},{self.data.geom(i).xpos})")
+                display("INFO", f"sensor data:{self.data.sensordata}")
+
+            display("INFO", f"joint_pos: {self.pos}")
+            display("INFO", f"joint_vel: {self.vel}")
+            display("INFO", f"rpy: {self.roll, self.pitch, self.yaw - self.init_yaw}")
+            display("INFO", f"theta: {180 * (self.theta / math.pi)}")
+            display("INFO", f"base_theta: {180 * (self.base_theta / math.pi)}")
+            display("INFO", f"""Contact forces at each leg:{self.data.sensor('FR_contact').data.copy(), 
+                                                            self.data.sensor('FL_contact').data.copy(), 
+                                                            self.data.sensor('RR_contact').data.copy(), 
+                                                            self.data.sensor('RL_contact').data.copy()}""" )
+
             q_ = [self.data.joint('pole_joint').qpos[0], self.data.joint('pole_joint').qpos[1], self.data.joint('pole_joint').qpos[2], self.data.joint('pole_joint').qpos[3]]
             for i, pos_ in enumerate(self.data.qpos):
                 if pos_ == q_[0]:
@@ -344,10 +361,12 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
         q_imu = np.quaternion(curr_quat[0], curr_quat[1], curr_quat[2], curr_quat[3])
         self.init_yaw = np.arctan2(2.0*(q_imu.w*q_imu.z + q_imu.x*q_imu.y), 1.0 - 2.0*(q_imu.y*q_imu.y + q_imu.z*q_imu.z))   
 
+        self.init_rewards()
+        self.step_contact_targets()
+
         return self._get_obs()
 
     def _get_obs(self):
-
         pos = self.data.sensor('frame_pos').data[:2].copy()   
         vel = self.data.sensor('frame_vel').data[:2].copy()
         quat = self.data.sensor('imu_quat').data.copy()
@@ -357,8 +376,7 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
 
         assert self.theta is not None, "self.theta is None, expected a float64"   
         assert self.base_theta is not None, "self.base_theta is None, expected a float64"   
-
-        return np.concatenate([np.array([self.theta, self.base_theta]), self.data.qpos, self.data.qvel, self.prev_actions, self.prev_states]).ravel().astype(np.float32)
+        return np.concatenate([np.array([self.theta, self.base_theta]), self.data.qpos, self.data.qvel, self.prev_actions, self.prev_states]).ravel().astype(np.float64)
 
     def controller(self, model, data):
         #pd controller : takes error and desired velocity as input, outputs the instantaneous torque
@@ -378,44 +396,8 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
     def _set_action_space(self):
         self.action_space = spaces.Box(low=-2, high=2, shape=(12,), dtype=np.float32)
         return self.action_space
-
-    def get_reward(self, contact_F, curr_torq, curr_joint_vel, curr_joint_acc):
-        self.reward_dict["balance_reward"] = self.config['r_theta_tracking'] - np.abs((self.theta - 0.0)) * np.exp(-1)
-        self.reward_dict["joint_torques_penalty"] = self.config['r_joint_torques_penalty'] * np.linalg.norm(curr_torq)
-        self.reward_dict["joint_acc_penalty"] = self.config['r_joint_acc_penalty'] * np.linalg.norm(curr_joint_acc)
-        self.reward_dict["joint_vel_penalty"] = self.config['r_joint_vel_penalty'] * np.linalg.norm(curr_joint_vel)
-        self.reward_dict["contact_force_penalty"] = self.config['r_contact_force_penalty'] * contact_F
-        self.reward_dict["feet_air_time_reward"] = self.config['r_feet_air_time'] * self.get_air_time()
-
-        self.reward_dict["linear_vel_tracking"] = self.config['r_linear_vel_tracking'] - np.abs((self.vel[0] - self.command_vel)) * np.exp(-1)
-        self.reward_dict["angular_vel_tracking"] = self.config['r_angular_vel_tracking'] - np.abs((self.yaw - self.command_yaw)) * np.exp(-1)
-        self.reward_dict["linear_vel_penalty"] = self.config['r_linear_vel_penalty'] * np.linalg.norm(self.vel[2])
-        self.reward_dict["angular_vel_penalty"] = self.config['r_angular_vel_penalty'] * np.linalg.norm([self.roll, self.pitch]) #keep the coeff small (for balancing bending is needed)
-
-        self.reward_dict["pend_tipping_penalty"] = 0.0
-        self.reward_dict["base_tipping_penalty"] = 0.0
-        self.reward_dict["infinite_obs"] = 0.0
-
-        if self.config['verbose']:
-            display("INFO", f"reward_dict: {self.reward_dict}")
-
-        return sum(self.reward_dict.values())
     
-    def get_air_time(self):
-        if contacts is None or prev_contacts is None:
-            return 0
-        contact_filt = torch.logical_or(self.contact, self.last_contacts) 
-        first_contact = (self.feet_air_time > 0.) * contact_filt
-        self.feet_air_time += self.dt
-
-        display("INFO", f"Feet contacts: {contact_filt}, Feet air times: {self.feet_air_time}")
-
-        rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) # reward only on first contact with the ground
-        # rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #TODO:no reward for zero command
-        self.feet_air_time *= ~contact_filt
-        return rew_airTime
-        
-    def get_terminated(self, observation, contact_F):
+    def get_terminated(self, observation):
         if not np.isfinite(observation).all():
             self.reward_dict["infinite_obs"] = -1
             return True
@@ -427,3 +409,127 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
             return True
 
         return False
+
+    def init_rewards(self):
+        from .rewards import Rewards
+        self.reward_container = Rewards(self, self.config)
+
+        # remove zero scales + multiply non-zero ones by dt
+        for key in list(self.reward_scales.keys()):
+            scale = self.reward_scales[key]
+            if scale == 0:
+                self.reward_scales.pop(key)
+            else:
+                self.reward_scales[key] *= self.control_dt
+
+        self.reward_functions = []
+        self.reward_names = []
+        for name, scale in self.reward_scales.items():
+            if name == "termination":
+                continue
+
+            if not hasattr(self.reward_container, '_reward_' + name):
+                display("WARNING", f"reward {'_reward_' + name} has nonzero coefficient but was not found!")
+            else:
+                self.reward_names.append(name)
+                self.reward_functions.append(getattr(self.reward_container, '_reward_' + name))
+
+    def get_reward(self):
+        self.rew_buf = 0.
+        self.rew_buf_pos = 0.
+        self.rew_buf_neg = 0.
+
+        for i in range(len(self.reward_functions)):
+            name = self.reward_names[i]
+            rew = self.reward_functions[i]() * self.reward_scales[name]
+            self.reward_dict[name] = rew
+            self.rew_buf += rew
+            if np.sum(rew) >= 0:
+                self.rew_buf_pos += rew
+            elif np.sum(rew) <= 0:
+                self.rew_buf_neg += rew
+        
+        # print(self.rew_buf_neg)
+        # print(self.rew_buf_pos)
+        self.rew_buf = self.rew_buf_pos * np.exp(self.rew_buf_neg / self.config['rewards']['sigma_rew_neg'])
+
+        return self.rew_buf
+
+
+    def step_contact_targets(self):
+        frequencies = self.step_frequency_cmd
+        phases = self.gait[0]
+        offsets = self.gait[1]
+        bounds = self.gait[2]
+        durations = self.gait_duration
+        self.gait_indices = np.remainder(self.gait_indices + self.control_dt * frequencies, 1.0)
+        #TODO: initialize gait indices to some value right now it is initialized as None
+
+        self.foot_indices = [self.gait_indices + phases + offsets + bounds,
+                        self.gait_indices + offsets,
+                        self.gait_indices + bounds,
+                        self.gait_indices + phases]
+
+        self.foot_indices = np.remainder(self.foot_indices, 1.0)
+
+        stance_idxs = np.remainder(self.foot_indices, 1) < durations
+        swing_idxs = np.remainder(self.foot_indices, 1) > durations
+        self.foot_indices[stance_idxs] = np.remainder(self.foot_indices[stance_idxs], 1) * (0.5 / durations)
+        self.foot_indices[swing_idxs] = 0.5 + (np.remainder(self.foot_indices[swing_idxs], 1) - durations) * (
+                    0.5 / (1 - durations))
+
+        # if self.cfg.commands.durations_warp_clock_inputs:
+
+        self.clock_inputs[0] = np.sin(2 * np.pi * self.foot_indices[0])
+        self.clock_inputs[1] = np.sin(2 * np.pi * self.foot_indices[1])
+        self.clock_inputs[2] = np.sin(2 * np.pi * self.foot_indices[2])
+        self.clock_inputs[3] = np.sin(2 * np.pi * self.foot_indices[3])
+
+        self.doubletime_clock_inputs[0] = np.sin(4 * np.pi * self.foot_indices[0])
+        self.doubletime_clock_inputs[1] = np.sin(4 * np.pi * self.foot_indices[1])
+        self.doubletime_clock_inputs[2] = np.sin(4 * np.pi * self.foot_indices[2])
+        self.doubletime_clock_inputs[3] = np.sin(4 * np.pi * self.foot_indices[3])
+
+        self.halftime_clock_inputs[0] = np.sin(np.pi * self.foot_indices[0])
+        self.halftime_clock_inputs[1] = np.sin(np.pi * self.foot_indices[1])
+        self.halftime_clock_inputs[2] = np.sin(np.pi * self.foot_indices[2])
+        self.halftime_clock_inputs[3] = np.sin(np.pi * self.foot_indices[3])
+
+        # von mises distribution
+        kappa = self.config['rewards']['kappa_gait_probs']
+
+        smoothing_cdf_start = norm(loc=0, scale=kappa).cdf
+
+        smoothing_multiplier_FL = (
+            smoothing_cdf_start(np.remainder(self.foot_indices[0], 1.0)) *
+            (1 - smoothing_cdf_start(np.remainder(self.foot_indices[0], 1.0) - 0.5)) +
+            smoothing_cdf_start(np.remainder(self.foot_indices[0], 1.0) - 1) *
+            (1 - smoothing_cdf_start(np.remainder(self.foot_indices[0], 1.0) - 0.5 - 1))
+        )
+
+        smoothing_multiplier_FR = (
+            smoothing_cdf_start(np.remainder(self.foot_indices[1], 1.0)) *
+            (1 - smoothing_cdf_start(np.remainder(self.foot_indices[1], 1.0) - 0.5)) +
+            smoothing_cdf_start(np.remainder(self.foot_indices[1], 1.0) - 1) *
+            (1 - smoothing_cdf_start(np.remainder(self.foot_indices[1], 1.0) - 0.5 - 1))
+        )
+
+        smoothing_multiplier_RL = (
+            smoothing_cdf_start(np.remainder(self.foot_indices[2], 1.0)) *
+            (1 - smoothing_cdf_start(np.remainder(self.foot_indices[2], 1.0) - 0.5)) +
+            smoothing_cdf_start(np.remainder(self.foot_indices[2], 1.0) - 1) *
+            (1 - smoothing_cdf_start(np.remainder(self.foot_indices[2], 1.0) - 0.5 - 1))
+        )
+
+        smoothing_multiplier_RR = (
+            smoothing_cdf_start(np.remainder(self.foot_indices[3], 1.0)) *
+            (1 - smoothing_cdf_start(np.remainder(self.foot_indices[3], 1.0) - 0.5)) +
+            smoothing_cdf_start(np.remainder(self.foot_indices[3], 1.0) - 1) *
+            (1 - smoothing_cdf_start(np.remainder(self.foot_indices[3], 1.0) - 0.5 - 1))
+        )
+
+        self.desired_contact_states = np.zeros_like(self.foot_indices)
+        self.desired_contact_states[0] = smoothing_multiplier_FL
+        self.desired_contact_states[1] = smoothing_multiplier_FR
+        self.desired_contact_states[2] = smoothing_multiplier_RL
+        self.desired_contact_states[3] = smoothing_multiplier_RR
