@@ -34,7 +34,7 @@ class Args:
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
-    capture_video: bool = False
+    capture_video: bool = True
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
@@ -153,8 +153,8 @@ if __name__ == "__main__":
     actor = Actor(env=envs, n_obs=n_obs, n_act=n_act, device=device, exploration_noise=args.exploration_noise)
     actor_detach = Actor(env=envs, n_obs=n_obs, n_act=n_act, device=device, exploration_noise=args.exploration_noise)
 
-    exp_name="walking-0.1"
-    actor_params = torch.load("runs/{exp_name}/actor.pth", map_location=device, weights_only=True)
+    exp_name="walking-0.2-0.0"
+    actor_params = torch.load(f"runs/{exp_name}/actor.pth", map_location=device, weights_only=True)
     actor.load_state_dict(actor_params)
     actor.eval()
     actor_detach.eval()
@@ -162,7 +162,7 @@ if __name__ == "__main__":
     from_module(actor).data.to_module(actor_detach)
     policy = actor_detach.explore
 
-    envs.single_observation_space.dtype = np.float64
+    envs.single_observation_space.dtype = np.float32
 
     policy_noise = args.policy_noise
     noise_clip = args.noise_clip
