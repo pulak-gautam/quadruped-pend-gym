@@ -143,6 +143,8 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
         observation_space = Box(low=-np.inf, high=np.inf, shape=(46 + 
                                                                  self.config['action_buffer_l']*12 + 
                                                                  self.config['obs_buffer_l']*2,), dtype=np.float64)
+        # print((46 + self.config['action_buffer_l']*12 + self.config['obs_buffer_l']*2,))
+        
         utils.EzPickle.__init__(self, xml_file, frame_skip, reset_noise_scale, **kwargs)
         MujocoEnv.__init__(
             self,
@@ -192,7 +194,7 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
 
         self.reward_scales = self.config['reward_scales']
         self.reward_dict = {}
-        self.command_vel = 0.0
+        self.command_vel = 0.2
         self.command_yaw = 0.0
 
         self.reward_container = None
@@ -376,7 +378,8 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
 
         assert self.theta is not None, "self.theta is None, expected a float64"   
         assert self.base_theta is not None, "self.base_theta is None, expected a float64"   
-        return np.concatenate([np.array([self.theta, self.base_theta]), self.data.qpos, self.data.qvel, self.prev_actions, self.prev_states]).ravel().astype(np.float64)
+        ret  = np.concatenate([np.array([self.theta, self.base_theta]), self.data.qpos, self.data.qvel, self.prev_actions, self.prev_states]).ravel().astype(np.float32)
+        return ret
 
     def controller(self, model, data):
         #pd controller : takes error and desired velocity as input, outputs the instantaneous torque
@@ -394,7 +397,7 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
                 self.data.ctrl[i] = tau
     
     def _set_action_space(self):
-        self.action_space = spaces.Box(low=-2, high=2, shape=(12,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-3, high=3, shape=(12,), dtype=np.float32)
         return self.action_space
     
     def get_terminated(self, observation):
@@ -420,7 +423,7 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
             if scale == 0:
                 self.reward_scales.pop(key)
             else:
-                self.reward_scales[key] *= self.control_dt
+                self.reward_scales[key] *= 1
 
         self.reward_functions = []
         self.reward_names = []
@@ -429,7 +432,8 @@ class QuadrupedPendEnv_v2(MujocoEnv, utils.EzPickle):
                 continue
 
             if not hasattr(self.reward_container, '_reward_' + name):
-                display("WARNING", f"reward {'_reward_' + name} has nonzero coefficient but was not found!")
+                # display("WARNING", f"reward {'_reward_' + name} has nonzero coefficient but was not found!")
+                pass
             else:
                 self.reward_names.append(name)
                 self.reward_functions.append(getattr(self.reward_container, '_reward_' + name))

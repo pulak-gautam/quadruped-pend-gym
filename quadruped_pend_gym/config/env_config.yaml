@@ -61,28 +61,28 @@ rewards:
   termination_reward: 0.0
 
 reward_scales:
-  pole_balance: 5.0
-  orientation_control: 5.0
-  tracking_lin_vel: 1.0
-  tracking_ang_vel: 0.5
+  pole_balance: 0.4
+  orientation_control: 0.0
+  tracking_lin_vel: 0.4
+  tracking_ang_vel: 0.2
 
-  lin_vel_z: -0.02
-  ang_vel_xy: -0.001
-  torques: -0.00001
+  lin_vel_z: -0.001
+  ang_vel_xy: -0.000
+  torques: -0.000005
   dof_acc: -2.5e-7
 
-  tracking_contacts_shaped_force: 4.0
-  tracking_contacts_shaped_vel: 4.0
-  action_smoothness_1: -0.1
-  action_smoothness_2: -0.1
-  raibert_heuristic: -10.0
+  tracking_contacts_shaped_force: 0.25
+  tracking_contacts_shaped_vel: 0.25
+  action_smoothness_1: -0.025
+  action_smoothness_2: -0.025
+  raibert_heuristic: 0.0
 
   dof_vel: -1.0e-4
-  feet_slip: -0.04
-  jump: 10.0
-  feet_clearance_cmd_linear: -30.0
-  collision: -5.0
-  action_rate: -0.01
+  feet_slip: -0.002
+  jump: 0.5
+  feet_clearance_cmd_linear: 0.0
+  collision: 0.0
+  action_rate: -0.005
 
   orientation: 0.0
   hop_symmetry: 0.0

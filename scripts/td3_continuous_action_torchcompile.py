@@ -39,9 +39,9 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "Quadruped-Pend-v1"
+    env_id: str = "Quadruped-Pend-v2"
     """the id of the environment"""
-    total_timesteps: int = 500000
+    total_timesteps: int = 1000000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
@@ -71,6 +71,9 @@ class Args:
     """whether to use torch.compile."""
     cudagraphs: bool = False
     """whether to use cudagraphs on top of compile."""
+
+    save_model: bool = True
+    """whether to save trained model weights."""
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -265,8 +268,10 @@ if __name__ == "__main__":
     start_time = None
     max_ep_ret = -float("inf")
     avg_returns = deque(maxlen=20)
+    avg_lengths = deque(maxlen=20)
     desc = ""
     autoreset = False
+    r = l = 0
 
     for global_step in pbar:
         if global_step == args.measure_burnin + args.learning_starts:
@@ -284,10 +289,12 @@ if __name__ == "__main__":
 
         if "episode" in infos:
             r = float(infos["episode"]["r"].reshape(()))
+            l = float(infos["episode"]["l"].reshape(()))
             max_ep_ret = max(max_ep_ret, r)
             avg_returns.append(r)
+            avg_lengths.append(l)
         desc = (
-            f"global_step={global_step}, episodic_return={torch.tensor(avg_returns).mean(): 4.2f} (max={max_ep_ret: 4.2f})"
+            f"global_step={global_step}, episodic_ret={r} episode_len={l} (max={max_ep_ret: 4.2f})"
         )
 
         next_obs = torch.as_tensor(next_obs, device=device, dtype=torch.float)
@@ -338,5 +345,20 @@ if __name__ == "__main__":
                     },
                     step=global_step,
                 )
+
+
+    if args.save_model:
+        save_dir=f"runs/walking-0.2-0.0"
+        os.makedirs(save_dir, exist_ok=True)
+
+        actor_save_path = os.path.join(save_dir, f"actor.pth")
+        qf1_save_path = os.path.join(save_dir, f"qf1.pth")
+        qf2_save_path = os.path.join(save_dir, f"qf2.pth")
+
+        torch.save(actor.state_dict(), actor_save_path)
+        torch.save(qnet_params[0].state_dict(), qf1_save_path)
+        torch.save(qnet_params[1].state_dict(), qf2_save_path)
+
+        print(f"Models saved to:\n- Actor: {actor_save_path}\n- QF1: {qf1_save_path}\n- QF2: {qf2_save_path}")
 
     envs.close()

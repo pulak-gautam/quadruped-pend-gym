@@ -23,6 +23,7 @@ import wandb
 from tensordict import from_module
 from tensordict.nn import CudaGraphModule
 from torch.distributions.normal import Normal
+import quadruped_pend_gym
 
 
 @dataclass
@@ -39,7 +40,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "CartPole-v1"
+    env_id: str = "Quadruped-Pend-v2"
     """the id of the environment"""
     total_timesteps: int = 1000000
     """total timesteps of the experiments"""
@@ -102,7 +103,7 @@ def make_env(env_id, idx, capture_video, run_name, gamma):
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
         env = gym.wrappers.NormalizeObservation(env)
-        env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10))
+        env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10), env.observation_space)
         env = gym.wrappers.NormalizeReward(env, gamma=gamma)
         env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
         return env
@@ -174,7 +175,7 @@ def gae(next_obs, next_done, container):
     return container
 
 
-def rollout(obs, done, avg_returns=[]):
+def rollout(obs, done, avg_returns=[], avg_lengths=[], max_ep_ret=None):
     ts = []
     for step in range(args.num_steps):
         # ALGO LOGIC: action logic
@@ -185,9 +186,13 @@ def rollout(obs, done, avg_returns=[]):
 
         if "episode" in infos:
             r = float(infos["episode"]["r"].reshape(()))
+            l = float(infos["episode"]["l"].reshape(()))
             max_ep_ret = max(max_ep_ret, r)
             avg_returns.append(r)
-        desc = f"global_step={global_step}, episodic_return={torch.tensor(avg_returns).mean(): 4.2f} (max={max_ep_ret: 4.2f})"
+            avg_lengths.append(l)
+            # desc = f"global_step={global_step}, episodic_return={torch.tensor(avg_returns).mean(): 4.2f} (max={max_ep_ret: 4.2f})"
+        # self.writer.add_scalar("charts/episodic_return", np.sum(r for r in infos["episode"]["r"] if r != 0) / np.sum(1 for r in infos["episode"]["r"] if r != 0), global_step) 
+        # self.writer.add_scalar("charts/episodic_length", np.sum(l for l in infos["episode"]["l"] if l != 0) / np.sum(1 for l in infos["episode"]["l"] if l != 0), global_step) 
 
         ts.append(
             tensordict.TensorDict._new_unsafe(
@@ -331,11 +336,12 @@ if __name__ == "__main__":
         update = CudaGraphModule(update)
 
     avg_returns = deque(maxlen=20)
+    avg_lengths = deque(maxlen=20)
     global_step = 0
     container_local = None
     next_obs = torch.tensor(envs.reset()[0], device=device, dtype=torch.float)
     next_done = torch.zeros(args.num_envs, device=device, dtype=torch.bool)
-    # max_ep_ret = -float("inf")
+    max_ep_ret = -float("inf")
     pbar = tqdm.tqdm(range(1, args.num_iterations + 1))
     # desc = ""
     global_step_burnin = None
@@ -351,7 +357,7 @@ if __name__ == "__main__":
             optimizer.param_groups[0]["lr"].copy_(lrnow)
 
         torch.compiler.cudagraph_mark_step_begin()
-        next_obs, next_done, container = rollout(next_obs, next_done, avg_returns=avg_returns)
+        next_obs, next_done, container = rollout(next_obs, next_done, avg_returns=avg_returns, avg_lengths=avg_lengths, max_ep_ret=max_ep_ret)
         global_step += container.numel()
 
         container = gae(next_obs, next_done, container)
@@ -376,10 +382,12 @@ if __name__ == "__main__":
             r = container["rewards"].mean()
             r_max = container["rewards"].max()
             avg_returns_t = torch.tensor(avg_returns).mean()
+            avg_lengths_t = torch.tensor(avg_lengths).mean()
 
             with torch.no_grad():
                 logs = {
                     "episode_return": np.array(avg_returns).mean(),
+                    "episode_length": np.array(avg_lengths).mean(),
                     "logprobs": container["logprobs"].mean(),
                     "advantages": container["advantages"].mean(),
                     "returns": container["returns"].mean(),
@@ -393,10 +401,11 @@ if __name__ == "__main__":
                 f"reward avg: {r :4.2f}, "
                 f"reward max: {r_max:4.2f}, "
                 f"returns: {avg_returns_t: 4.2f},"
+                f"episode_len: {avg_lengths_t: 4.2f}, "
                 f"lr: {lr: 4.2f}"
             )
             wandb.log(
-                {"speed": speed, "episode_return": avg_returns_t, "r": r, "r_max": r_max, "lr": lr, **logs}, step=global_step
+                {"speed": speed, "episode_return": avg_returns_t, "episode_length": avg_lengths_t, "r": r, "r_max": r_max, "lr": lr, **logs}, step=global_step
             )
 
     envs.close()
